@@ -1,0 +1,23 @@
+{
+  "parent": "touhou_maid_eat_properly:favor_level_10",
+  "display": {
+    "icon": {
+      "item": "minecraft:cake"
+    },
+    "title": {
+      "translate": "advancements.touhou_maid_eat_properly.favor_level_20.title"
+    },
+    "description": {
+      "translate": "advancements.touhou_maid_eat_properly.favor_level_20.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "impossible": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

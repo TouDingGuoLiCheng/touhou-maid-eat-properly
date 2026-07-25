@@ -1,0 +1,47 @@
+# eclipse
+bin/
+*.launch
+.settings/
+.metadata/
+.classpath
+.project
+
+# idea
+out/
+*.ipr
+*.iws
+*.iml
+.idea/
+
+# gradle / forge
+build/
+.gradle/
+run/
+run-data/
+eclipse/
+mcmodsrepo/
+
+# local dependency jars (use Modrinth/CurseMaven instead)
+libs/*.jar
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# local assets / drafts (not needed to build)
+素材/
+assets_backup/
+介绍视频文案.md
+下一步的计划-*.md
+# root-only leftover asset (real texture lives under src/...)
+/green_tea.png
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# Forge MDK noise
+forge*changelog.txt
+changelog.txt
+CREDITS.txt
+README.txt

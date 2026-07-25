@@ -1,0 +1,23 @@
+{
+  "parent": "touhou_maid_eat_properly:favor_level_80",
+  "display": {
+    "icon": {
+      "item": "minecraft:sweet_berries"
+    },
+    "title": {
+      "translate": "advancements.touhou_maid_eat_properly.favor_level_90.title"
+    },
+    "description": {
+      "translate": "advancements.touhou_maid_eat_properly.favor_level_90.description"
+    },
+    "frame": "goal",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "impossible": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

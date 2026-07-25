@@ -1,0 +1,23 @@
+{
+  "parent": "touhou_maid_eat_properly:favor_level_90",
+  "display": {
+    "icon": {
+      "item": "minecraft:enchanted_golden_apple"
+    },
+    "title": {
+      "translate": "advancements.touhou_maid_eat_properly.favor_level_100.title"
+    },
+    "description": {
+      "translate": "advancements.touhou_maid_eat_properly.favor_level_100.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "impossible": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}
