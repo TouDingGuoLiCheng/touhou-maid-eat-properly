@@ -37,7 +37,7 @@ Minecraft **1.20.1** Forge · 依赖车万女仆 **1.5.3+**
 gradlew.bat build
 ```
 
-产物：`build/libs/touhou_maid_eat_properly-1.0.0.jar`
+产物：`build/libs/touhou_maid_eat_properly-1.1.0.jar`
 
 ## 调试指令
 
