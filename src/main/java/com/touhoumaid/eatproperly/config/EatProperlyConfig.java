@@ -31,19 +31,31 @@ public final class EatProperlyConfig {
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> REQUEST_SPEECH;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> THANKS_SPEECH;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> ABANDON_SPEECH;
+    /** Speech after a hypnosis note successfully forgets the current request. */
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> HYPNOSIS_SPEECH;
 
     public static final ForgeConfigSpec.DoubleValue SATIETY_DAILY_DRAIN_RATIO;
     public static final ForgeConfigSpec.IntValue SATIETY_LOW_THRESHOLD;
+    /** Maid work/home meals only when satiety is strictly below this value. */
+    public static final ForgeConfigSpec.IntValue EAT_WHEN_SATIETY_BELOW;
     public static final ForgeConfigSpec.IntValue HUNGER_SPEECH_INTERVAL_TICKS;
     public static final ForgeConfigSpec.IntValue FAVOR_DECAY_GRACE_DAYS;
     public static final ForgeConfigSpec.IntValue FAVOR_DECAY_PER_DAY_EXP;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> HUNGER_SPEECH;
 
     /**
-     * Reserved milestone table. Empty by default; parsed but unused in v1.
+     * Reserved legacy milestone override table. Empty by default; parsed but not applied to gameplay.
+     * The real milestone reward levels/pools are hardcoded in {@code RewardPoolTables}; this list is
+     * kept only for possible forward-compatible per-level overrides.
      * Future entries may look like {@code "10"} (favor level) or {@code "level=10;reward=none"}.
      */
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> MILESTONES;
+    /** Chat+bubble when a new pending gift is locked (once per item). Use {maid}. */
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> MILESTONE_GIFT_SPEECH;
+    /** Bubble-only nag while gifts remain unclaimed. Use {maid}. */
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> MILESTONE_GIFT_BUBBLE;
+    /** When the reward pool is empty for a milestone level. Use {maid}. */
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> MILESTONE_EMPTY_SPEECH;
 
     /** Same as player food level. */
     public static final int SATIETY_MAX = 20;
@@ -120,6 +132,13 @@ public final class EatProperlyConfig {
                         "呜呜……没关系的，主人一定有更重要的事要做吧。",
                         "我还是自己忍一下好了……抱歉打扰你了，主人。"
                 ), o -> o instanceof String);
+        HYPNOSIS_SPEECH = builder
+                .comment("Speech after a hypnosis note makes the maid forget her current food request.")
+                .defineList("hypnosisSpeech", List.of(
+                        "诶？我想吃什么来着……",
+                        "脑袋晕乎乎的……今天想吃啥忘记了……",
+                        "唔……点单？好像想不起来了……"
+                ), o -> o instanceof String);
         builder.pop();
 
         builder.push("satiety");
@@ -129,6 +148,12 @@ public final class EatProperlyConfig {
         SATIETY_LOW_THRESHOLD = builder
                 .comment("Below this satiety, hunger speech and favor-decay grace counting start. Default 6.")
                 .defineInRange("satietyLowThreshold", 6, 0, 20);
+        EAT_WHEN_SATIETY_BELOW = builder
+                .comment(
+                        "Work meal and home meal only attempt eating when satiety < this value.",
+                        "Heal-self meal (eating when hurt) is not gated. Default 15."
+                )
+                .defineInRange("eatWhenSatietyBelow", 15, 0, 21);
         HUNGER_SPEECH_INTERVAL_TICKS = builder
                 .comment("Ticks between hunger chat/bubble while satiety is low. Default 24000 (1 game day).")
                 .defineInRange("hungerSpeechIntervalTicks", 24000, 200, 720000);
@@ -152,11 +177,37 @@ public final class EatProperlyConfig {
         builder.push("milestones");
         MILESTONES = builder
                 .comment(
-                        "Reserved milestone table for future rewards. Default empty = no effect in v1.",
-                        "Entries are parsed for forward compatibility but currently ignored.",
-                        "Suggested future format: a favor level number, e.g. \"10\", or \"level=10;reward=none\"."
+                        "Optional legacy milestone override table strings. Default empty; not required for rewards to work.",
+                        "Milestone reward levels and pools are already active and hardcoded (see RewardPoolTables);",
+                        "this list is reserved for possible future per-level overrides."
                 )
                 .defineListAllowEmpty("milestones", ArrayList::new, o -> o instanceof String);
+        MILESTONE_GIFT_SPEECH = builder
+                .comment("Said once per new pending gift (chat + bubble). Use {maid} for display name.")
+                .defineList("milestoneGiftSpeech", List.of(
+                        "我有东西给你哦，主人~",
+                        "诶嘿……给主人准备了小礼物，记得来拿呀～",
+                        "主人主人！我藏了一样东西给你哦。",
+                        "尾巴都摇起来了……因为有礼物要送给主人！",
+                        "唔，有点害羞……但我真的想把这个交给主人。",
+                        "叮咚——心意快递到啦，请主人收下。",
+                        "今天也要好好吃饭，还有……请收下我的一点小心意吧。",
+                        "我认真想了很久才选的！快来领走它～"
+                ), o -> o instanceof String);
+        MILESTONE_GIFT_BUBBLE = builder
+                .comment("Repeating bubble while unclaimed gifts remain. Use {maid}. Keep short.")
+                .defineList("milestoneGiftBubble", List.of(
+                        "我有东西给你哦，主人~",
+                        "主人，过来一下嘛～"
+                ), o -> o instanceof String);
+        MILESTONE_EMPTY_SPEECH = builder
+                .comment("When a milestone fires but the pool has nothing left to give. Use {maid}.")
+                .defineList("milestoneEmptySpeech", List.of(
+                        "想送你礼物来着……可是好像没有了呢。",
+                        "欸？口袋空空的……下次一定准备好！",
+                        "礼物清单翻到底了……只剩谢谢你了，主人。",
+                        "呜，想送礼却拿不出新东西……抱一下可以吗？"
+                ), o -> o instanceof String);
         builder.pop();
 
         SPEC = builder.build();

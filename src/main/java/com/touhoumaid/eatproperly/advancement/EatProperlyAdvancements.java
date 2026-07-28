@@ -4,19 +4,29 @@ import com.touhoumaid.eatproperly.EatProperlyMod;
 import net.minecraft.advancements.Advancement;
 import net.minecraft.advancements.AdvancementProgress;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.StringTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
 public final class EatProperlyAdvancements {
     private static final String PLAYER_ROOT = "TouhouMaidEatProperly";
     private static final String REQUEST_COUNT = "RequestCompleteCount";
     private static final String LUNCHBOX_COUNT = "LunchboxDeliverCount";
+    private static final String HIGH_FAVOR_MAIDS = "HighFavorMaidUuids";
+    private static final int ALL_MY_WINGS_LEVEL = 70;
 
     public static final ResourceLocation ROOT = id("root");
     public static final ResourceLocation FIRST_REQUEST = id("first_request");
     public static final ResourceLocation REQUEST_100 = id("request_100");
     public static final ResourceLocation FIRST_LUNCHBOX = id("first_lunchbox_delivery");
     public static final ResourceLocation LUNCHBOX_100 = id("lunchbox_100");
+    public static final ResourceLocation ALL_MY_WINGS = id("all_my_wings");
 
     public static final int[] FAVOR_LEVELS = {5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
 
@@ -61,6 +71,24 @@ public final class EatProperlyAdvancements {
         }
     }
 
+    /**
+     * Tracks maids that are at/above level 70 for the multi-maid challenge advancement.
+     */
+    public static void onMaidFavorForWings(ServerPlayer player, UUID maidUuid, int newLevel) {
+        Set<UUID> tracked = readHighFavorMaids(player);
+        if (newLevel >= ALL_MY_WINGS_LEVEL) {
+            tracked.add(maidUuid);
+        } else {
+            tracked.remove(maidUuid);
+        }
+        writeHighFavorMaids(player, tracked);
+        if (tracked.size() > 1) {
+            grant(player, ROOT);
+            grant(player, favorLevel(ALL_MY_WINGS_LEVEL));
+            grant(player, ALL_MY_WINGS);
+        }
+    }
+
     public static int getRequestCount(ServerPlayer player) {
         return playerRoot(player).getInt(REQUEST_COUNT);
     }
@@ -77,6 +105,27 @@ public final class EatProperlyAdvancements {
         int next = tag.getInt(LUNCHBOX_COUNT) + 1;
         tag.putInt(LUNCHBOX_COUNT, next);
         return next;
+    }
+
+    private static Set<UUID> readHighFavorMaids(ServerPlayer player) {
+        Set<UUID> result = new HashSet<>();
+        ListTag list = playerRoot(player).getList(HIGH_FAVOR_MAIDS, Tag.TAG_STRING);
+        for (int i = 0; i < list.size(); i++) {
+            try {
+                result.add(UUID.fromString(list.getString(i)));
+            } catch (IllegalArgumentException ignored) {
+                // skip corrupt entries
+            }
+        }
+        return result;
+    }
+
+    private static void writeHighFavorMaids(ServerPlayer player, Set<UUID> uuids) {
+        ListTag list = new ListTag();
+        for (UUID uuid : uuids) {
+            list.add(StringTag.valueOf(uuid.toString()));
+        }
+        playerRoot(player).put(HIGH_FAVOR_MAIDS, list);
     }
 
     private static CompoundTag playerRoot(ServerPlayer player) {

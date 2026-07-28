@@ -8,7 +8,9 @@
     "FavorabilityManagerMixin",
     "EntityMaidMixin",
     "MaidMealSatietyMixin",
-    "CakeEdibleMixin"
+    "MaidMealEatGateMixin",
+    "CakeEdibleMixin",
+    "InventoryMenuMixin"
   ],
   "client": [],
   "injectors": {

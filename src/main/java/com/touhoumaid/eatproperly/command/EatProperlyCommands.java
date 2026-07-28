@@ -16,6 +16,9 @@ import com.touhoumaid.eatproperly.food.FoodPool;
 import com.touhoumaid.eatproperly.food.FoodRequestData;
 import com.touhoumaid.eatproperly.food.FoodRequestHandler;
 import com.touhoumaid.eatproperly.food.MaidSpeech;
+import com.touhoumaid.eatproperly.inventory.TrinketContainer;
+import com.touhoumaid.eatproperly.milestone.MilestoneData;
+import com.touhoumaid.eatproperly.milestone.MilestoneRewards;
 import com.touhoumaid.eatproperly.satiety.SatietyData;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -37,13 +40,16 @@ public final class EatProperlyCommands {
     }
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+        // Root itself is unrestricted so the "trinkets" branch below stays usable by any player;
+        // every debug/admin branch below carries its own .requires(permission 2) instead.
         LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("eatproperly")
-                .requires(source -> source.hasPermission(2))
                 .then(Commands.literal("status")
+                        .requires(source -> source.hasPermission(2))
                         .executes(ctx -> status(ctx, null))
                         .then(Commands.argument("maid", EntityArgument.entity())
                                 .executes(ctx -> status(ctx, EntityArgument.getEntity(ctx, "maid")))))
                 .then(Commands.literal("request")
+                        .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("now")
                                 .executes(ctx -> requestNow(ctx, null))
                                 .then(Commands.argument("maid", EntityArgument.entity())
@@ -73,6 +79,7 @@ public final class EatProperlyCommands {
                                 .then(Commands.argument("maid", EntityArgument.entity())
                                         .executes(ctx -> requestAbandon(ctx, EntityArgument.getEntity(ctx, "maid"))))))
                 .then(Commands.literal("nag")
+                        .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("now")
                                 .executes(ctx -> nagNow(ctx, null))
                                 .then(Commands.argument("maid", EntityArgument.entity())
@@ -84,6 +91,7 @@ public final class EatProperlyCommands {
                                         .then(Commands.argument("max", IntegerArgumentType.integer(1, 720000))
                                                 .executes(EatProperlyCommands::setNagIntervalOverride)))))
                 .then(Commands.literal("satiety")
+                        .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("set")
                                 .then(Commands.argument("value", IntegerArgumentType.integer(0, EatProperlyConfig.SATIETY_MAX))
                                         .executes(ctx -> satietySet(ctx, null))
@@ -98,13 +106,33 @@ public final class EatProperlyCommands {
                                         .executes(ctx -> lowDaysSet(ctx, null))
                                         .then(Commands.argument("maid", EntityArgument.entity())
                                                 .executes(ctx -> lowDaysSet(ctx, EntityArgument.getEntity(ctx, "maid")))))))
+                .then(Commands.literal("hunger")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("set")
+                                .then(Commands.argument("value", IntegerArgumentType.integer(0, 20))
+                                        .executes(ctx -> hungerSet(ctx)))))
                 .then(Commands.literal("favor")
+                        .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("setlevel")
                                 .then(Commands.argument("level", IntegerArgumentType.integer(0, 1000))
                                         .executes(ctx -> favorSetLevel(ctx, null))
                                         .then(Commands.argument("maid", EntityArgument.entity())
                                                 .executes(ctx -> favorSetLevel(ctx, EntityArgument.getEntity(ctx, "maid")))))))
+                .then(Commands.literal("trinkets")
+                        // Intentionally no .requires(): default open method for any player (spec: §2.3 / task-9-brief).
+                        .executes(EatProperlyCommands::openTrinkets))
+                .then(Commands.literal("milestone")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("pending")
+                                .executes(ctx -> milestonePending(ctx, null))
+                                .then(Commands.argument("maid", EntityArgument.entity())
+                                        .executes(ctx -> milestonePending(ctx, EntityArgument.getEntity(ctx, "maid")))))
+                        .then(Commands.literal("claim")
+                                .executes(ctx -> milestoneClaim(ctx, null))
+                                .then(Commands.argument("maid", EntityArgument.entity())
+                                        .executes(ctx -> milestoneClaim(ctx, EntityArgument.getEntity(ctx, "maid"))))))
                 .then(Commands.literal("override")
+                        .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("clear")
                                 .executes(EatProperlyCommands::clearAllOverrides))
                         .then(Commands.literal("status")
@@ -112,7 +140,6 @@ public final class EatProperlyCommands {
 
         LiteralCommandNode<CommandSourceStack> node = dispatcher.register(root);
         dispatcher.register(Commands.literal("ep")
-                .requires(source -> source.hasPermission(2))
                 .redirect(node));
     }
 
@@ -321,6 +348,16 @@ public final class EatProperlyCommands {
         return 1;
     }
 
+    /** Sets the executing player's foodLevel only; saturation is left unchanged. */
+    private static int hungerSet(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        int value = IntegerArgumentType.getInteger(ctx, "value");
+        player.getFoodData().setFoodLevel(value);
+        int actual = player.getFoodData().getFoodLevel();
+        ctx.getSource().sendSuccess(() -> Component.literal("玩家饥饿度设为 " + actual + "/20"), true);
+        return 1;
+    }
+
     private static int satietyDrain(CommandContext<CommandSourceStack> ctx, Entity explicit) throws CommandSyntaxException {
         EntityMaid maid = resolveMaid(ctx.getSource(), explicit);
         SatietyData.ensureInitialized(maid);
@@ -359,6 +396,53 @@ public final class EatProperlyCommands {
         int finalLevel = newLevel;
         ctx.getSource().sendSuccess(() -> Component.literal(
                 "好感设为等级 " + finalLevel + " (points=" + points + ", hp=" + maid.getMaxHealth() + ")"), true);
+        return 1;
+    }
+
+    private static int openTrinkets(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        TrinketContainer.open(player);
+        return 1;
+    }
+
+    /** Debug: list pending milestone levels/items for the target maid (nearest by default). */
+    private static int milestonePending(CommandContext<CommandSourceStack> ctx, Entity explicit) throws CommandSyntaxException {
+        EntityMaid maid = resolveMaid(ctx.getSource(), explicit);
+        List<MilestoneData.PendingClaim> pending = MilestoneData.listPendingClaims(maid);
+        String maidName = maid.getDisplayName().getString();
+        if (pending.isEmpty()) {
+            ctx.getSource().sendSuccess(() -> Component.literal(
+                    "[EatProperly] " + maidName + " 当前没有待领取的里程碑"), false);
+            return 0;
+        }
+        StringBuilder sb = new StringBuilder("[EatProperly] ").append(maidName).append(" 待领取：");
+        for (MilestoneData.PendingClaim claim : pending) {
+            sb.append("\n  level=").append(claim.level()).append(" item=").append(claim.itemId());
+        }
+        String message = sb.toString();
+        ctx.getSource().sendSuccess(() -> Component.literal(message), false);
+        return pending.size();
+    }
+
+    /** Debug: claim the first pending milestone reward for the target maid, mirroring the GUI claim flow. */
+    private static int milestoneClaim(CommandContext<CommandSourceStack> ctx, Entity explicit) throws CommandSyntaxException {
+        EntityMaid maid = resolveMaid(ctx.getSource(), explicit);
+        ServerPlayer player = ctx.getSource().getPlayerOrException();
+        List<MilestoneData.PendingClaim> pending = MilestoneData.listPendingClaims(maid);
+        if (pending.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal("当前没有待领取的里程碑"));
+            return 0;
+        }
+        int level = pending.get(0).level();
+        ItemStack granted = MilestoneRewards.claimFirst(maid, player, level);
+        if (granted.isEmpty()) {
+            ctx.getSource().sendFailure(Component.literal(
+                    "领取失败（你不是该女仆的主人，或队首等级已变化，可重试）"));
+            return 0;
+        }
+        ItemStack finalGranted = granted;
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "已领取 level=" + level + "：" + finalGranted.getHoverName().getString()), true);
         return 1;
     }
 

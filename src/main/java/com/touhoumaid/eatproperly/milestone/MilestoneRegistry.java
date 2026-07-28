@@ -3,18 +3,19 @@ package com.touhoumaid.eatproperly.milestone;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.mojang.logging.LogUtils;
 import com.touhoumaid.eatproperly.config.EatProperlyConfig;
+import com.touhoumaid.eatproperly.food.MaidSpeech;
+import net.minecraft.resources.ResourceLocation;
 import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
- * Reserved milestone API for a future version.
- * <p>
- * v1 only parses config entries so an empty (or any) {@code milestones} list is safe and has no gameplay effect.
+ * Milestone rewards: on favor level-up, lock a pending claim from the matching pool.
  */
 public final class MilestoneRegistry {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -37,18 +38,45 @@ public final class MilestoneRegistry {
         return Collections.unmodifiableList(parsed);
     }
 
-    /**
-     * Called when favor level changes. Intentionally empty in v1.
-     */
     public static void onFavorLevelChange(EntityMaid maid, int oldLevel, int newLevel) {
-        // Reserved: apply milestone rewards when crossing configured levels.
-        if (LOGGER.isDebugEnabled() && !parseConfigured().isEmpty()) {
-            LOGGER.debug("Milestone hook (no-op): maid={} {} -> {}, entries={}",
-                    maid.getUUID(), oldLevel, newLevel, EatProperlyConfig.milestoneEntries().size());
+        if (newLevel <= oldLevel) {
+            return;
+        }
+        for (int level = oldLevel + 1; level <= newLevel; level++) {
+            Optional<RewardCategory> category = RewardPools.categoryForLevel(level);
+            if (category.isEmpty()) {
+                continue;
+            }
+            if (MilestoneData.hasClaimedLevel(maid, level) || MilestoneData.hasPendingLevel(maid, level)) {
+                continue;
+            }
+            Optional<ResourceLocation> item = RewardPools.pick(
+                    category.get(),
+                    MilestoneData.getExcludedItems(maid),
+                    maid.getRandom());
+            if (item.isEmpty()) {
+                MilestoneData.markClaimedEmpty(maid, level);
+                String empty = MaidSpeech.formatMilestoneEmpty(maid, maid.getRandom());
+                if (!empty.isEmpty()) {
+                    MaidSpeech.speakToOwner(maid, empty);
+                }
+                LOGGER.debug("Milestone pool empty: maid={} level={}", maid.getUUID(), level);
+                continue;
+            }
+            MilestoneData.addPending(maid, level, item.get());
+            if (!MilestoneRewards.wasChatAnnounced(maid, item.get())) {
+                String gift = MaidSpeech.formatMilestoneGift(maid, maid.getRandom());
+                if (!gift.isEmpty()) {
+                    MaidSpeech.speakToOwner(maid, gift);
+                }
+                MilestoneRewards.markChatAnnounced(maid, item.get());
+                MilestoneRewards.setLastBubbleGameTime(maid, maid.level().getGameTime());
+            }
+            LOGGER.debug("Milestone pending: maid={} level={} item={}", maid.getUUID(), level, item.get());
         }
     }
 
-    /** Parsed milestone row; rewards are placeholders only. */
+    /** Parsed config row (legacy / optional overrides). */
     public record MilestoneEntry(OptionalInt level, String raw, String rewardId) {
         public static MilestoneEntry parse(String raw) {
             String reward = "none";
@@ -77,14 +105,14 @@ public final class MilestoneRegistry {
                 try {
                     level = OptionalInt.of(Integer.parseInt(raw));
                 } catch (NumberFormatException ignored) {
-                    // keep empty; still store raw for forward compatibility
+                    // keep empty
                 }
             }
             return new MilestoneEntry(level, raw, reward);
         }
 
         public boolean hasEffect() {
-            return false; // v1: never applies rewards
+            return level.isPresent() && RewardPools.isMilestoneLevel(level.getAsInt());
         }
     }
 }

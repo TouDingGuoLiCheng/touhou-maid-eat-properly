@@ -17,25 +17,34 @@ public final class FoodPool {
 
     public static List<Item> collectAvailableFoods() {
         List<Item> foods = new ArrayList<>();
-        boolean fd = ModList.get().isLoaded(EatProperlyMod.FARMERS_DELIGHT_MOD_ID);
-        boolean youkai = ModList.get().isLoaded(EatProperlyMod.YOUKAI_MOD_ID);
-
         for (Item item : ForgeRegistries.ITEMS) {
-            if (!item.isEdible()) {
-                continue;
-            }
-            ResourceLocation id = ForgeRegistries.ITEMS.getKey(item);
-            if (id == null) {
-                continue;
-            }
-            String ns = id.getNamespace();
-            if ("minecraft".equals(ns)
-                    || (fd && EatProperlyMod.FARMERS_DELIGHT_MOD_ID.equals(ns))
-                    || (youkai && EatProperlyMod.YOUKAI_MOD_ID.equals(ns))) {
+            if (isPoolItem(item)) {
                 foods.add(item);
             }
         }
         return foods;
+    }
+
+    /** True when {@code item} belongs to the food-request pool (edible, from an allowed namespace). */
+    public static boolean isPoolItem(Item item) {
+        if (item == null || !item.isEdible()) {
+            return false;
+        }
+        ResourceLocation id = ForgeRegistries.ITEMS.getKey(item);
+        if (id == null) {
+            return false;
+        }
+        String ns = id.getNamespace();
+        boolean fd = ModList.get().isLoaded(EatProperlyMod.FARMERS_DELIGHT_MOD_ID);
+        boolean youkai = ModList.get().isLoaded(EatProperlyMod.YOUKAI_MOD_ID);
+        return "minecraft".equals(ns)
+                || (fd && EatProperlyMod.FARMERS_DELIGHT_MOD_ID.equals(ns))
+                || (youkai && EatProperlyMod.YOUKAI_MOD_ID.equals(ns));
+    }
+
+    /** True when {@code stack} belongs to the food-request pool. */
+    public static boolean isPoolItem(ItemStack stack) {
+        return !stack.isEmpty() && isPoolItem(stack.getItem());
     }
 
     public static ItemStack pickRandom(RandomSource random) {

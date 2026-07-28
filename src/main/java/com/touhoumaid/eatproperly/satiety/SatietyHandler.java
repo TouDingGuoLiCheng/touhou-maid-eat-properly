@@ -51,7 +51,11 @@ public final class SatietyHandler {
     private static void applyDailySettlement(EntityMaid maid) {
         int drain = SatietyData.dailyDrainAmount();
         if (drain > 0) {
-            SatietyData.setSatiety(maid, SatietyData.getSatiety(maid) - drain);
+            double mult = com.touhoumaid.eatproperly.trinket.TrinketEffects.insulatedMealBagDrainMultiplier(maid);
+            int reduced = (int) Math.round(drain * mult);
+            if (reduced > 0) {
+                SatietyData.setSatiety(maid, SatietyData.getSatiety(maid) - reduced);
+            }
         }
 
         int satiety = SatietyData.getSatiety(maid);

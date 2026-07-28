@@ -5,6 +5,10 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.advancement.EatProperlyAdvancements;
 import com.touhoumaid.eatproperly.config.EatProperlyConfig;
+import com.touhoumaid.eatproperly.favorability.FavorLevelMath;
+import com.touhoumaid.eatproperly.favorability.FavorabilityExtension;
+import com.touhoumaid.eatproperly.item.reward.DualLunchboxLogic;
+import com.touhoumaid.eatproperly.milestone.MilestoneRewards;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -37,6 +41,7 @@ public final class FoodRequestHandler {
 
     private static void tickMaid(EntityMaid maid) {
         MaidSpeech.tickPendingChat(maid);
+        MilestoneRewards.tickBubbleNag(maid);
         ensureSchedule(maid);
 
         long day = FoodRequestData.currentGameDay(maid);
@@ -134,7 +139,7 @@ public final class FoodRequestHandler {
         ItemStackHandler inv = maid.getMaidInv();
         for (int i = 0; i < inv.getSlots(); i++) {
             ItemStack stack = inv.getStackInSlot(i);
-            if (!stack.isEmpty() && matchesRequest(stack, wanted)) {
+            if (isAcceptableFood(maid, stack, wanted)) {
                 completeRequest(maid, wanted);
                 return true;
             }
@@ -151,7 +156,7 @@ public final class FoodRequestHandler {
             return false;
         }
         ItemStack wanted = FoodRequestData.getRequestStack(maid);
-        if (wanted.isEmpty() || !matchesRequest(food, wanted)) {
+        if (wanted.isEmpty() || !isAcceptableFood(maid, food, wanted)) {
             return false;
         }
         completeRequest(maid, wanted);
@@ -166,6 +171,73 @@ public final class FoodRequestHandler {
         String a = FoodPool.toId(food);
         String b = FoodPool.toId(wanted);
         return !a.isEmpty() && a.equals(b);
+    }
+
+    /**
+     * Whether {@code food} completes the current request: an exact match normally, or any
+     * food-pool item while the maid is under the hypnosis note's "forgotten" state.
+     */
+    public static boolean isAcceptableFood(EntityMaid maid, ItemStack food, ItemStack wanted) {
+        if (food.isEmpty()) {
+            return false;
+        }
+        if (FoodRequestData.isForgotten(maid)) {
+            return FoodPool.isPoolItem(food);
+        }
+        return matchesRequest(food, wanted);
+    }
+
+    /**
+     * Immediately (re)rolls the maid's request, used by the extra meal permit. Abandons any
+     * in-progress request (silently, no sad line) before picking a new one.
+     */
+    public static boolean forceNewRequest(EntityMaid maid) {
+        FoodRequestData.setInitialized(maid);
+        FoodRequestData.clearRequest(maid);
+        ItemStack pick = FoodPool.pickRandom(maid.getRandom());
+        if (pick.isEmpty()) {
+            scheduleNext(maid);
+            return false;
+        }
+        FoodRequestData.setRequest(maid, pick);
+        nag(maid, pick);
+        return true;
+    }
+
+    /**
+     * Whether two lunchbox-slot foods together satisfy the dual lunchbox's completion rule:
+     * both must be valid food-pool items, and at least one must match (or, while forgotten,
+     * simply be) the current request.
+     */
+    public static boolean canCompleteDual(EntityMaid maid, ItemStack foodA, ItemStack foodB) {
+        if (!FoodRequestData.hasRequest(maid)) {
+            return false;
+        }
+        ItemStack wanted = FoodRequestData.getRequestStack(maid);
+        if (wanted.isEmpty()) {
+            return false;
+        }
+        boolean aMatches = isAcceptableFood(maid, foodA, wanted);
+        boolean bMatches = isAcceptableFood(maid, foodB, wanted);
+        boolean aInPool = FoodPool.isPoolItem(foodA);
+        boolean bInPool = FoodPool.isPoolItem(foodB);
+        return DualLunchboxLogic.canComplete(aMatches, aInPool, bMatches, bInPool);
+    }
+
+    /**
+     * Completes the current request granting {@code levelGain} favorability levels instead of the
+     * usual one (used by the dual lunchbox). No-op (returns false) if there is no active request.
+     */
+    public static boolean completeCurrentRequestWithLevelGain(EntityMaid maid, int levelGain) {
+        if (!FoodRequestData.hasRequest(maid)) {
+            return false;
+        }
+        ItemStack wanted = FoodRequestData.getRequestStack(maid);
+        if (wanted.isEmpty()) {
+            return false;
+        }
+        completeRequest(maid, wanted, levelGain);
+        return true;
     }
 
     /**
@@ -184,13 +256,19 @@ public final class FoodRequestHandler {
     }
 
     private static void completeRequest(EntityMaid maid, ItemStack food) {
+        completeRequest(maid, food, 1);
+    }
+
+    /** @param levelGain how many favorability levels this completion should grant (normally 1). */
+    private static void completeRequest(EntityMaid maid, ItemStack food, int levelGain) {
         FoodRequestData.clearRequest(maid);
         scheduleNext(maid);
 
         FavorabilityManager manager = maid.getFavorabilityManager();
-        int need = manager.nextLevelPoint();
-        if (need > 0) {
-            manager.add(need);
+        int add = FavorLevelMath.pointsToAdd(maid.getFavorability(), levelGain, FavorabilityExtension.getMaxLevel(),
+                FavorabilityExtension::getLevel, FavorabilityExtension::getPointByLevel);
+        if (add > 0) {
+            manager.add(add);
         }
 
         Player owner = maid.getOwner() instanceof Player player ? player : null;

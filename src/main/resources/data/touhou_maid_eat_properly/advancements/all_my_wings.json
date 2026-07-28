@@ -1,0 +1,23 @@
+{
+  "parent": "touhou_maid_eat_properly:favor_level_70",
+  "display": {
+    "icon": {
+      "item": "minecraft:elytra"
+    },
+    "title": {
+      "translate": "advancements.touhou_maid_eat_properly.all_my_wings.title"
+    },
+    "description": {
+      "translate": "advancements.touhou_maid_eat_properly.all_my_wings.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "impossible": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

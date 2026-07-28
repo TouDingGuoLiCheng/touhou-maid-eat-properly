@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "touhou_maid_eat_properly:item/two_tone_hair_tie"
+  }
+}

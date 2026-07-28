@@ -19,19 +19,15 @@ import java.util.List;
 
 /**
  * Maid speech to owner: bubble always shows immediately; chat-bar text only during
- * 06:00–22:00. Messages that would land outside that window are deferred to the next 10:00.
+ * 08:00–20:00 (TLM {@code getDayTime()} clock). Outside that window, public chat is
+ * deferred to a random moment in the next 08:00–20:00 window.
  */
 public final class MaidSpeech {
     private static final String ROOT = "TouhouMaidEatProperly";
     private static final String PENDING_CHATS = "PendingOwnerChats";
     private static final String MSG = "Msg";
+    /** Absolute {@code level.getDayTime()} when this entry should deliver. */
     private static final String AT = "At";
-
-    /** Minecraft: dayTime 0 = 06:00, +1000 per hour. */
-    private static final int DAY_TICKS = 24000;
-    private static final int CHAT_WINDOW_START = 0;     // 06:00
-    private static final int CHAT_WINDOW_END = 16000;   // 22:00
-    private static final int DEFERRED_DELIVERY_TOD = 4000; // 10:00
     private static final int MAX_PENDING = 8;
 
     private MaidSpeech() {
@@ -49,6 +45,14 @@ public final class MaidSpeech {
         return formatFood(EatProperlyConfig.ABANDON_SPEECH.get(), food, random);
     }
 
+    public static String formatHypnosis(RandomSource random) {
+        List<? extends String> templates = EatProperlyConfig.HYPNOSIS_SPEECH.get();
+        if (templates == null || templates.isEmpty()) {
+            return "";
+        }
+        return templates.get(random.nextInt(templates.size()));
+    }
+
     public static String formatHunger(EntityMaid maid, RandomSource random) {
         List<? extends String> templates = EatProperlyConfig.HUNGER_SPEECH.get();
         if (templates == null || templates.isEmpty()) {
@@ -59,18 +63,46 @@ public final class MaidSpeech {
         return template.replace("{maid}", maidName);
     }
 
+    public static String formatMilestoneGift(EntityMaid maid, RandomSource random) {
+        return formatMaidTemplate(EatProperlyConfig.MILESTONE_GIFT_SPEECH.get(), maid, random);
+    }
+
+    public static String formatMilestoneGiftBubble(EntityMaid maid, RandomSource random) {
+        return formatMaidTemplate(EatProperlyConfig.MILESTONE_GIFT_BUBBLE.get(), maid, random);
+    }
+
+    public static String formatMilestoneEmpty(EntityMaid maid, RandomSource random) {
+        return formatMaidTemplate(EatProperlyConfig.MILESTONE_EMPTY_SPEECH.get(), maid, random);
+    }
+
+    private static String formatMaidTemplate(List<? extends String> templates, EntityMaid maid, RandomSource random) {
+        if (templates == null || templates.isEmpty()) {
+            return "";
+        }
+        String template = templates.get(random.nextInt(templates.size()));
+        return template.replace("{maid}", maid.getDisplayName().getString());
+    }
+
     public static void speakToOwner(EntityMaid maid, String message) {
         if (message == null || message.isEmpty()) {
             return;
         }
-        maid.getChatBubbleManager().addChatBubble(TextChatBubbleData.type2(Component.literal(message)));
+        bubbleOnly(maid, message);
 
-        long now = maid.level().getGameTime();
-        if (isChatWindow(now)) {
+        long now = maid.level().getDayTime();
+        if (MaidWorldTime.isChatWindow(now)) {
             sendChatToOwner(maid, message);
         } else {
-            enqueuePendingChat(maid, message, nextDeferredDeliveryTime(now));
+            enqueuePendingChat(maid, message, nextDeferredDeliveryTime(now, maid.getRandom()));
         }
+    }
+
+    /** Bubble only — no chat bar (used for repeating milestone nags). */
+    public static void bubbleOnly(EntityMaid maid, String message) {
+        if (message == null || message.isEmpty()) {
+            return;
+        }
+        maid.getChatBubbleManager().addChatBubble(TextChatBubbleData.type2(Component.literal(message)));
     }
 
     /** Deliver any deferred chat-bar messages whose delivery time has arrived. */
@@ -84,7 +116,7 @@ public final class MaidSpeech {
             return;
         }
 
-        long now = maid.level().getGameTime();
+        long now = maid.level().getDayTime();
         ListTag kept = new ListTag();
         for (int i = 0; i < list.size(); i++) {
             CompoundTag entry = list.getCompound(i);
@@ -97,8 +129,8 @@ public final class MaidSpeech {
                 kept.add(entry);
                 continue;
             }
-            if (!isChatWindow(now)) {
-                entry.putLong(AT, nextDeferredDeliveryTime(now));
+            if (!MaidWorldTime.isChatWindow(now)) {
+                entry.putLong(AT, nextDeferredDeliveryTime(now, maid.getRandom()));
                 kept.add(entry);
                 continue;
             }
@@ -140,23 +172,9 @@ public final class MaidSpeech {
         root.put(PENDING_CHATS, list);
     }
 
-    /** True for local time in [06:00, 22:00). */
-    static boolean isChatWindow(long gameTime) {
-        long tod = Math.floorMod(gameTime, DAY_TICKS);
-        return tod >= CHAT_WINDOW_START && tod < CHAT_WINDOW_END;
-    }
-
-    /**
-     * Next 10:00 after {@code gameTime}. When called from outside the chat window
-     * (22:00–06:00), this is always the upcoming morning's 10:00.
-     */
-    static long nextDeferredDeliveryTime(long gameTime) {
-        long tod = Math.floorMod(gameTime, DAY_TICKS);
-        long dayStart = gameTime - tod;
-        if (tod < DEFERRED_DELIVERY_TOD) {
-            return dayStart + DEFERRED_DELIVERY_TOD;
-        }
-        return dayStart + DAY_TICKS + DEFERRED_DELIVERY_TOD;
+    static long nextDeferredDeliveryTime(long dayTime, RandomSource random) {
+        int offset = random.nextInt(MaidWorldTime.CHAT_WINDOW_LENGTH);
+        return MaidWorldTime.nextRandomDeliveryDayTime(dayTime, offset);
     }
 
     private static CompoundTag root(EntityMaid maid) {

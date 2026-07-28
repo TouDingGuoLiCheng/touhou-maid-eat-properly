@@ -2,7 +2,6 @@ package com.touhoumaid.eatproperly.inventory;
 
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.item.LunchboxItem;
-import com.touhoumaid.eatproperly.item.ModItems;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
@@ -83,16 +82,16 @@ public class LunchboxContainer extends AbstractContainerMenu {
 
     private static ItemStack findHeldLunchbox(Inventory inv, ItemStack hint) {
         ItemStack main = inv.player.getMainHandItem();
-        if (main.is(ModItems.LUNCHBOX.get())) {
+        if (main.getItem() instanceof LunchboxItem) {
             return main;
         }
         ItemStack off = inv.player.getOffhandItem();
-        if (off.is(ModItems.LUNCHBOX.get())) {
+        if (off.getItem() instanceof LunchboxItem) {
             return off;
         }
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack stack = inv.getItem(i);
-            if (stack.is(ModItems.LUNCHBOX.get()) && ItemStack.isSameItemSameTags(stack, hint)) {
+            if (stack.getItem() instanceof LunchboxItem && ItemStack.isSameItemSameTags(stack, hint)) {
                 return stack;
             }
         }
@@ -150,8 +149,8 @@ public class LunchboxContainer extends AbstractContainerMenu {
         ItemStack off = player.getOffhandItem();
         return main == this.lunchbox
                 || off == this.lunchbox
-                || (main.is(ModItems.LUNCHBOX.get()) && ItemStack.isSameItemSameTags(main, this.lunchbox))
-                || (off.is(ModItems.LUNCHBOX.get()) && ItemStack.isSameItemSameTags(off, this.lunchbox));
+                || (main.getItem() instanceof LunchboxItem && ItemStack.isSameItemSameTags(main, this.lunchbox))
+                || (off.getItem() instanceof LunchboxItem && ItemStack.isSameItemSameTags(off, this.lunchbox));
     }
 
     @Override

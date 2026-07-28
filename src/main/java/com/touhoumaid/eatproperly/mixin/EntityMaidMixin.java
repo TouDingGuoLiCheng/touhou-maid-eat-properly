@@ -4,6 +4,7 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.touhoumaid.eatproperly.config.EatProperlyConfig;
 import com.touhoumaid.eatproperly.food.FoodRequestData;
 import com.touhoumaid.eatproperly.inventory.EatProperlyContainer;
+import com.touhoumaid.eatproperly.milestone.MilestoneRewards;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Player;
@@ -40,8 +41,14 @@ public abstract class EntityMaidMixin {
         }
         self.getNavigation().stop();
         ItemStack food = FoodRequestData.getRequestStack(self);
+        ItemStack pending = MilestoneRewards.previewStack(self);
+        int mode = MilestoneRewards.uiMode(self);
+        int pendingLevel = MilestoneRewards.previewLevel(self);
+        boolean forgotten = FoodRequestData.isForgotten(self);
         MenuProvider provider = EatProperlyContainer.create(self.getId());
-        NetworkHooks.openScreen(serverPlayer, provider, buf -> EatProperlyContainer.writeExtraData(buf, self.getId(), food));
+        NetworkHooks.openScreen(serverPlayer, provider,
+                buf -> EatProperlyContainer.writeExtraData(
+                        buf, self.getId(), food, pending, mode, pendingLevel, forgotten));
         cir.setReturnValue(true);
     }
 }

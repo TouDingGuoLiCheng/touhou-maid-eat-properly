@@ -20,12 +20,13 @@ public final class AdvancementEvents {
             return;
         }
         int newLevel = event.getNewLevel();
-        if (newLevel <= event.getOldLevel()) {
+        Player owner = maid.getOwner() instanceof Player player ? player : null;
+        if (!(owner instanceof ServerPlayer serverPlayer)) {
             return;
         }
-        Player owner = maid.getOwner() instanceof Player player ? player : null;
-        if (owner instanceof ServerPlayer serverPlayer) {
+        if (newLevel > event.getOldLevel()) {
             EatProperlyAdvancements.onFavorLevelReached(serverPlayer, newLevel);
         }
+        EatProperlyAdvancements.onMaidFavorForWings(serverPlayer, maid.getUUID(), newLevel);
     }
 }

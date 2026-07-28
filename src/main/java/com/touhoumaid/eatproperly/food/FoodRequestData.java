@@ -18,6 +18,8 @@ public final class FoodRequestData {
     private static final String LAST_NAG = "LastNagGameTime";
     private static final String NEXT_NAG_INTERVAL = "NextNagIntervalTicks";
     private static final String INIT = "Initialized";
+    /** Set by the hypnosis note: while true, any food-pool item (not just the exact request) completes the request. */
+    private static final String FORGOTTEN = "RequestForgotten";
 
     public static final long TICKS_PER_DAY = 24000L;
 
@@ -54,6 +56,7 @@ public final class FoodRequestData {
         tag.putLong(START_DAY, now / TICKS_PER_DAY);
         tag.putLong(LAST_NAG, -1L);
         tag.putInt(NEXT_NAG_INTERVAL, 0);
+        tag.putBoolean(FORGOTTEN, false);
     }
 
     public static void clearRequest(EntityMaid maid) {
@@ -63,6 +66,17 @@ public final class FoodRequestData {
         tag.remove(START_DAY);
         tag.putLong(LAST_NAG, -1L);
         tag.putInt(NEXT_NAG_INTERVAL, 0);
+        tag.putBoolean(FORGOTTEN, false);
+    }
+
+    /** Whether the maid currently "forgot" her request (hypnosis note): any food-pool item completes it. */
+    public static boolean isForgotten(EntityMaid maid) {
+        return root(maid).getBoolean(FORGOTTEN);
+    }
+
+    /** Only meaningful while {@link #hasRequest(EntityMaid)} is true; cleared automatically on set/clear. */
+    public static void setForgotten(EntityMaid maid, boolean forgotten) {
+        root(maid).putBoolean(FORGOTTEN, forgotten);
     }
 
     /**

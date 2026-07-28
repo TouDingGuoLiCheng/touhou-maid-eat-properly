@@ -5,6 +5,8 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.advancement.EatProperlyAdvancements;
 import com.touhoumaid.eatproperly.food.FoodRequestHandler;
+import com.touhoumaid.eatproperly.item.reward.BoundLunchboxItem;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -36,9 +38,18 @@ public final class LunchboxEvents {
 
         ItemStack food = LunchboxItem.getStoredFood(stack);
         if (food.isEmpty()) {
-            // Empty box: open GUI instead of maid panel.
+            // Empty box: open GUI instead of maid panel (bind check does not apply here).
             if (player instanceof ServerPlayer serverPlayer) {
                 LunchboxItem.openGui(serverPlayer, stack);
+            }
+            event.setCanceled(true);
+            return;
+        }
+
+        if (stack.getItem() instanceof BoundLunchboxItem && !BoundLunchboxItem.matchesBoundMaid(stack, maid)) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                serverPlayer.displayClientMessage(
+                        Component.translatable("message.touhou_maid_eat_properly.bound_lunchbox_wrong_maid"), true);
             }
             event.setCanceled(true);
             return;

@@ -1,14 +1,18 @@
 package com.touhoumaid.eatproperly.inventory;
 
+import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.inventory.container.AbstractMaidContainer;
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.food.FoodRequestData;
+import com.touhoumaid.eatproperly.milestone.MilestoneRewards;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ContainerData;
 import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.inventory.SimpleContainerData;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.common.extensions.IForgeMenuType;
@@ -27,13 +31,29 @@ public class EatProperlyContainer extends AbstractMaidContainer {
             () -> IForgeMenuType.create(EatProperlyContainer::fromNetwork)
     );
 
-    /** Off-screen slot used to keep the client request icon in sync after completion. */
+    /** Off-screen: request food sync. */
     private final ItemStackHandler requestSync = new ItemStackHandler(1);
+    /** Off-screen: pending milestone reward preview. */
+    private final ItemStackHandler milestoneSync = new ItemStackHandler(1);
+    /** 0 = UI mode (WAITING/CLAIMABLE/BOND), 1 = displayed pending level or -1, 2 = request forgotten (0/1). */
+    private final ContainerData milestoneData = new SimpleContainerData(3);
 
-    public EatProperlyContainer(int id, Inventory inventory, int entityId, ItemStack requestedFood) {
+    public EatProperlyContainer(int id, Inventory inventory, int entityId, ItemStack requestedFood,
+                                ItemStack pendingReward, int milestoneMode, int pendingLevel, boolean requestForgotten) {
         super(TYPE.get(), id, inventory, entityId);
         this.requestSync.setStackInSlot(0, requestedFood.isEmpty() ? ItemStack.EMPTY : requestedFood.copy());
-        this.addSlot(new SlotItemHandler(this.requestSync, 0, -999, -999) {
+        this.milestoneSync.setStackInSlot(0, pendingReward.isEmpty() ? ItemStack.EMPTY : pendingReward.copy());
+        this.milestoneData.set(0, milestoneMode);
+        this.milestoneData.set(1, pendingLevel);
+        this.milestoneData.set(2, requestForgotten ? 1 : 0);
+        this.addDataSlots(this.milestoneData);
+
+        this.addSlot(lockedSyncSlot(this.requestSync, 0));
+        this.addSlot(lockedSyncSlot(this.milestoneSync, 0));
+    }
+
+    private static SlotItemHandler lockedSyncSlot(ItemStackHandler handler, int index) {
+        return new SlotItemHandler(handler, index, -999, -999) {
             @Override
             public boolean mayPickup(Player player) {
                 return false;
@@ -43,13 +63,17 @@ public class EatProperlyContainer extends AbstractMaidContainer {
             public boolean mayPlace(ItemStack stack) {
                 return false;
             }
-        });
+        };
     }
 
     private static EatProperlyContainer fromNetwork(int windowId, Inventory inv, FriendlyByteBuf data) {
         int entityId = data.readInt();
         ItemStack food = data.readItem();
-        return new EatProperlyContainer(windowId, inv, entityId, food);
+        ItemStack pending = data.readItem();
+        int mode = data.readVarInt();
+        int pendingLevel = data.readVarInt();
+        boolean forgotten = data.readBoolean();
+        return new EatProperlyContainer(windowId, inv, entityId, food, pending, mode, pendingLevel, forgotten);
     }
 
     public static MenuProvider create(int entityId) {
@@ -62,30 +86,81 @@ public class EatProperlyContainer extends AbstractMaidContainer {
             @Override
             public EatProperlyContainer createMenu(int id, Inventory inventory, Player player) {
                 ItemStack food = ItemStack.EMPTY;
-                if (player.level().getEntity(entityId) instanceof com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid maid) {
+                ItemStack pending = ItemStack.EMPTY;
+                int mode = MilestoneRewards.MODE_WAITING;
+                int pendingLevel = -1;
+                boolean forgotten = false;
+                if (player.level().getEntity(entityId) instanceof EntityMaid maid) {
                     food = FoodRequestData.getRequestStack(maid);
+                    pending = MilestoneRewards.previewStack(maid);
+                    mode = MilestoneRewards.uiMode(maid);
+                    pendingLevel = MilestoneRewards.previewLevel(maid);
+                    forgotten = FoodRequestData.isForgotten(maid);
                 }
-                return new EatProperlyContainer(id, inventory, entityId, food);
+                return new EatProperlyContainer(id, inventory, entityId, food, pending, mode, pendingLevel, forgotten);
             }
         };
     }
 
-    public static void writeExtraData(FriendlyByteBuf buf, int entityId, ItemStack food) {
+    public static void writeExtraData(FriendlyByteBuf buf, int entityId, ItemStack food,
+                                      ItemStack pending, int mode, int pendingLevel, boolean forgotten) {
         buf.writeInt(entityId);
         buf.writeItem(food);
+        buf.writeItem(pending);
+        buf.writeVarInt(mode);
+        buf.writeVarInt(pendingLevel);
+        buf.writeBoolean(forgotten);
     }
 
     public ItemStack getRequestedFood() {
         return this.requestSync.getStackInSlot(0);
     }
 
+    public ItemStack getPendingMilestoneReward() {
+        return this.milestoneSync.getStackInSlot(0);
+    }
+
+    public int getMilestoneMode() {
+        return this.milestoneData.get(0);
+    }
+
+    public int getPendingMilestoneLevel() {
+        return this.milestoneData.get(1);
+    }
+
+    public boolean isRequestForgotten() {
+        return this.milestoneData.get(2) != 0;
+    }
+
     @Override
     public void broadcastChanges() {
         if (this.getMaid() != null && !this.getMaid().level().isClientSide()) {
-            ItemStack now = FoodRequestData.getRequestStack(this.getMaid());
-            ItemStack shown = this.requestSync.getStackInSlot(0);
-            if (!ItemStack.isSameItemSameTags(now, shown) || now.getCount() != shown.getCount()) {
-                this.requestSync.setStackInSlot(0, now.isEmpty() ? ItemStack.EMPTY : now.copy());
+            EntityMaid maid = this.getMaid();
+            ItemStack nowFood = FoodRequestData.getRequestStack(maid);
+            ItemStack shownFood = this.requestSync.getStackInSlot(0);
+            if (!ItemStack.isSameItemSameTags(nowFood, shownFood) || nowFood.getCount() != shownFood.getCount()) {
+                this.requestSync.setStackInSlot(0, nowFood.isEmpty() ? ItemStack.EMPTY : nowFood.copy());
+            }
+
+            ItemStack nowPending = MilestoneRewards.previewStack(maid);
+            ItemStack shownPending = this.milestoneSync.getStackInSlot(0);
+            if (!ItemStack.isSameItemSameTags(nowPending, shownPending)
+                    || nowPending.getCount() != shownPending.getCount()) {
+                this.milestoneSync.setStackInSlot(0, nowPending.isEmpty() ? ItemStack.EMPTY : nowPending.copy());
+            }
+
+            int mode = MilestoneRewards.uiMode(maid);
+            if (this.milestoneData.get(0) != mode) {
+                this.milestoneData.set(0, mode);
+            }
+            int pendingLevel = MilestoneRewards.previewLevel(maid);
+            if (this.milestoneData.get(1) != pendingLevel) {
+                this.milestoneData.set(1, pendingLevel);
+            }
+
+            int forgotten = FoodRequestData.isForgotten(maid) ? 1 : 0;
+            if (this.milestoneData.get(2) != forgotten) {
+                this.milestoneData.set(2, forgotten);
             }
         }
         super.broadcastChanges();
@@ -98,13 +173,12 @@ public class EatProperlyContainer extends AbstractMaidContainer {
         if (slot != null && slot.hasItem()) {
             ItemStack stack2 = slot.getItem();
             stack1 = stack2.copy();
-            // Last slot is the off-screen request sync — never shift-click it.
-            int syncSlot = this.slots.size() - 1;
-            if (index == syncSlot) {
+            int syncStart = this.slots.size() - 2;
+            if (index >= syncStart) {
                 return ItemStack.EMPTY;
             }
             if (index < 27) {
-                if (!this.moveItemStackTo(stack2, 27, syncSlot, false)) {
+                if (!this.moveItemStackTo(stack2, 27, syncStart, false)) {
                     return ItemStack.EMPTY;
                 }
             } else if (!this.moveItemStackTo(stack2, 0, 27, true)) {

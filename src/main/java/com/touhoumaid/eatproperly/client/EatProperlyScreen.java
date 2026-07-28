@@ -5,6 +5,9 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.config.EatProperlyConfig;
 import com.touhoumaid.eatproperly.inventory.EatProperlyContainer;
+import com.touhoumaid.eatproperly.milestone.MilestoneRewards;
+import com.touhoumaid.eatproperly.network.ClaimMilestoneRewardPacket;
+import com.touhoumaid.eatproperly.network.ModNetwork;
 import com.touhoumaid.eatproperly.satiety.SatietyData;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -19,7 +22,6 @@ import net.minecraft.world.item.ItemStack;
 public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyContainer> {
     private static final ResourceLocation BG =
             ResourceLocation.fromNamespaceAndPath(EatProperlyMod.MOD_ID, "textures/gui/eat_properly_panel.png");
-    /** Atlas: 满(0,16) / 半(16,16) / 空(32,16)，各 16×16；绘制时缩到 12×12 */
     private static final ResourceLocation SATIETY_ICONS =
             ResourceLocation.fromNamespaceAndPath(EatProperlyMod.MOD_ID, "textures/gui/satiety_icons.png");
 
@@ -28,7 +30,6 @@ public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyConta
     private static final int PANEL_W = 176;
     private static final int PANEL_H = 137;
 
-    /** Inset from panel edge (panel starts at 80,28; border ~2px). */
     private static final int CONTENT_X = 96;
     private static final int CONTENT_W = 144;
 
@@ -37,6 +38,11 @@ public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyConta
     private static final int REQUEST_Y = 80;
     private static final int ITEM_Y = 96;
     private static final int HINT_Y = 120;
+
+    /** Milestone claim slot (screen-relative, same space as renderLabels). */
+    private static final int MILESTONE_SLOT_X = CONTENT_X + CONTENT_W - 20;
+    private static final int MILESTONE_SLOT_Y = ITEM_Y;
+    private static final int MILESTONE_SLOT_SIZE = 18;
 
     private static final int SATIETY_ICON_SIZE = 12;
     private static final int SATIETY_ICON_STEP = 11;
@@ -71,7 +77,14 @@ public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyConta
         if (food.isEmpty()) {
             graphics.drawWordWrap(this.font,
                     Component.translatable("gui.touhou_maid_eat_properly.no_request"),
-                    CONTENT_X, REQUEST_Y, CONTENT_W, MUTED_COLOR);
+                    CONTENT_X, REQUEST_Y, CONTENT_W - 24, MUTED_COLOR);
+        } else if (this.menu.isRequestForgotten()) {
+            EntityMaid maid = this.menu.getMaid();
+            String maidName = maid != null ? maid.getDisplayName().getString() : "";
+            graphics.drawWordWrap(this.font,
+                    Component.translatable("gui.touhou_maid_eat_properly.request_forgotten", maidName),
+                    CONTENT_X, REQUEST_Y, CONTENT_W - 24, TEXT_COLOR);
+            graphics.drawCenteredString(this.font, "?", CONTENT_X + 8, ITEM_Y + 4, MUTED_COLOR);
         } else {
             graphics.drawString(this.font,
                     Component.translatable("gui.touhou_maid_eat_properly.current_request"),
@@ -82,19 +95,86 @@ public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyConta
 
             int nameX = CONTENT_X + 20;
             int nameY = ITEM_Y + 4;
-            String name = this.font.plainSubstrByWidth(food.getHoverName().getString(), CONTENT_W - 20);
+            String name = this.font.plainSubstrByWidth(food.getHoverName().getString(), CONTENT_W - 44);
             graphics.drawString(this.font, name, nameX, nameY, TEXT_COLOR, false);
 
-            graphics.drawWordWrap(this.font,
-                    Component.translatable("gui.touhou_maid_eat_properly.hint"),
-                    CONTENT_X, HINT_Y, CONTENT_W, MUTED_COLOR);
+            if (this.menu.getMilestoneMode() != MilestoneRewards.MODE_BOND) {
+                graphics.drawWordWrap(this.font,
+                        Component.translatable("gui.touhou_maid_eat_properly.hint"),
+                        CONTENT_X, HINT_Y, CONTENT_W, MUTED_COLOR);
+            }
         }
+
+        renderMilestoneSlot(graphics, mouseX, mouseY);
+    }
+
+    private void renderMilestoneSlot(GuiGraphics graphics, int mouseX, int mouseY) {
+        int mode = this.menu.getMilestoneMode();
+        EntityMaid maid = this.menu.getMaid();
+
+        if (mode == MilestoneRewards.MODE_BOND) {
+            String maidName = maid != null ? maid.getDisplayName().getString() : "";
+            graphics.drawWordWrap(this.font,
+                    Component.translatable("gui.touhou_maid_eat_properly.milestone_bond", maidName),
+                    CONTENT_X, HINT_Y - 2, CONTENT_W, TEXT_COLOR);
+            return;
+        }
+
+        int slotX = MILESTONE_SLOT_X;
+        int slotY = MILESTONE_SLOT_Y;
+        graphics.fill(slotX - 1, slotY - 1, slotX + MILESTONE_SLOT_SIZE, slotY + MILESTONE_SLOT_SIZE, 0xFF8B8B8B);
+        graphics.fill(slotX, slotY, slotX + MILESTONE_SLOT_SIZE - 2, slotY + MILESTONE_SLOT_SIZE - 2, 0xFF373737);
+
+        if (mode == MilestoneRewards.MODE_CLAIMABLE) {
+            ItemStack pending = this.menu.getPendingMilestoneReward();
+            if (!pending.isEmpty()) {
+                graphics.renderItem(pending, slotX + 1, slotY + 1);
+                graphics.renderItemDecorations(this.font, pending, slotX + 1, slotY + 1);
+            }
+        } else {
+            graphics.drawCenteredString(this.font, "?", slotX + 8, slotY + 5, 0x777777);
+        }
+
+        if (isHoveringMilestone(mouseX, mouseY)) {
+            if (mode == MilestoneRewards.MODE_CLAIMABLE) {
+                ItemStack pending = this.menu.getPendingMilestoneReward();
+                if (!pending.isEmpty()) {
+                    graphics.renderTooltip(this.font, pending, mouseX - this.leftPos, mouseY - this.topPos);
+                }
+            } else {
+                graphics.renderTooltip(this.font,
+                        Component.literal("???"),
+                        mouseX - this.leftPos, mouseY - this.topPos);
+            }
+        }
+    }
+
+    private boolean isHoveringMilestone(int mouseX, int mouseY) {
+        if (this.menu.getMilestoneMode() == MilestoneRewards.MODE_BOND) {
+            return false;
+        }
+        int absX = this.leftPos + MILESTONE_SLOT_X;
+        int absY = this.topPos + MILESTONE_SLOT_Y;
+        return mouseX >= absX && mouseX < absX + MILESTONE_SLOT_SIZE
+                && mouseY >= absY && mouseY < absY + MILESTONE_SLOT_SIZE;
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0 && isHoveringMilestone((int) mouseX, (int) mouseY)) {
+            EntityMaid maid = this.menu.getMaid();
+            if (maid != null) {
+                ModNetwork.CHANNEL.sendToServer(new ClaimMilestoneRewardPacket(
+                        maid.getId(), this.menu.getPendingMilestoneLevel()));
+            }
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
     }
 
     private void renderSatietyBar(GuiGraphics graphics, int x, int y) {
         EntityMaid maid = this.menu.getMaid();
         int foodLevel = maid != null ? SatietyData.getSatiety(maid) : 0;
-        // Vanilla hunger style: icons left→right, empty from the right as satiety drops.
         for (int i = 0; i < 10; i++) {
             int iconX = x + i * SATIETY_ICON_STEP;
             blitIcon(graphics, iconX, y, SATIETY_UV_EMPTY);

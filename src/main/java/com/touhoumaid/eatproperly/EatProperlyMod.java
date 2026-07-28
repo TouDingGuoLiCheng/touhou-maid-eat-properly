@@ -2,8 +2,11 @@ package com.touhoumaid.eatproperly;
 
 import com.mojang.logging.LogUtils;
 import com.touhoumaid.eatproperly.config.EatProperlyConfig;
+import com.touhoumaid.eatproperly.effect.ModEffects;
+import com.touhoumaid.eatproperly.inventory.DualLunchboxContainer;
 import com.touhoumaid.eatproperly.inventory.EatProperlyContainer;
 import com.touhoumaid.eatproperly.inventory.LunchboxContainer;
+import com.touhoumaid.eatproperly.inventory.TrinketContainer;
 import com.touhoumaid.eatproperly.item.ModCreativeTabs;
 import com.touhoumaid.eatproperly.item.ModItems;
 import net.minecraftforge.common.MinecraftForge;
@@ -33,14 +36,18 @@ public class EatProperlyMod {
         IEventBus modEventBus = context.getModEventBus();
         modEventBus.addListener(this::commonSetup);
         ModItems.ITEMS.register(modEventBus);
+        ModEffects.MOB_EFFECTS.register(modEventBus);
         ModCreativeTabs.TABS.register(modEventBus);
         EatProperlyContainer.MENUS.register(modEventBus);
         LunchboxContainer.MENUS.register(modEventBus);
+        DualLunchboxContainer.MENUS.register(modEventBus);
+        TrinketContainer.MENUS.register(modEventBus);
         context.registerConfig(ModConfig.Type.COMMON, EatProperlyConfig.SPEC);
         MinecraftForge.EVENT_BUS.register(this);
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
+        event.enqueueWork(com.touhoumaid.eatproperly.network.ModNetwork::register);
         LOGGER.info("Touhou Maid: Eat properly loaded.");
         LOGGER.info("Touhou Little Maid present: {}", ModList.get().isLoaded(TLM_MOD_ID));
         LOGGER.info("Farmer's Delight present: {}", ModList.get().isLoaded(FARMERS_DELIGHT_MOD_ID));
