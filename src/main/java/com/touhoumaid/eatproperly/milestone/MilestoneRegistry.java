@@ -58,7 +58,7 @@ public final class MilestoneRegistry {
                 MilestoneData.markClaimedEmpty(maid, level);
                 String empty = MaidSpeech.formatMilestoneEmpty(maid, maid.getRandom());
                 if (!empty.isEmpty()) {
-                    MaidSpeech.speakToOwner(maid, empty);
+                    MaidSpeech.bubbleToOwnerIfNear(maid, empty);
                 }
                 LOGGER.debug("Milestone pool empty: maid={} level={}", maid.getUUID(), level);
                 continue;
@@ -67,7 +67,7 @@ public final class MilestoneRegistry {
             if (!MilestoneRewards.wasChatAnnounced(maid, item.get())) {
                 String gift = MaidSpeech.formatMilestoneGift(maid, maid.getRandom());
                 if (!gift.isEmpty()) {
-                    MaidSpeech.speakToOwner(maid, gift);
+                    MaidSpeech.bubbleToOwnerIfNear(maid, gift);
                 }
                 MilestoneRewards.markChatAnnounced(maid, item.get());
                 MilestoneRewards.setLastBubbleGameTime(maid, maid.level().getGameTime());

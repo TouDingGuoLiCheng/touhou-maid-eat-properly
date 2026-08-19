@@ -21,13 +21,13 @@ public final class RewardPoolTables {
     static {
         Map<Integer, RewardCategory> levels = new LinkedHashMap<>();
         levels.put(5, RewardCategory.TOKEN_LOW);
-        levels.put(10, RewardCategory.CARE);
+        levels.put(10, RewardCategory.TOKEN_MID);
         levels.put(20, RewardCategory.BUFF);
         levels.put(30, RewardCategory.TOKEN_LOW);
-        levels.put(40, RewardCategory.CARE);
+        levels.put(40, RewardCategory.BUFF);
         levels.put(50, RewardCategory.BUFF);
         levels.put(60, RewardCategory.TOKEN_MID);
-        levels.put(70, RewardCategory.CARE);
+        levels.put(70, RewardCategory.TOKEN_MID);
         levels.put(80, RewardCategory.BUFF);
         levels.put(90, RewardCategory.TOKEN_HIGH);
         levels.put(100, RewardCategory.TOKEN_HIGH);
@@ -55,7 +55,8 @@ public final class RewardPoolTables {
                 "unopened_souvenir",
                 "pressed_diary_page",
                 "block_figurine",
-                "silver_bell_charm"
+                "silver_bell_charm",
+                "bound_lunchbox"
         ));
         pools.put(RewardCategory.TOKEN_HIGH, List.of(
                 "warm_amulet",
@@ -64,12 +65,6 @@ public final class RewardPoolTables {
                 "sugar_jar",
                 "unnamed_ring",
                 "plain_pouch"
-        ));
-        pools.put(RewardCategory.CARE, List.of(
-                "bound_lunchbox",
-                "dual_lunchbox",
-                "extra_meal_permit",
-                "hypnosis_note"
         ));
         pools.put(RewardCategory.BUFF, List.of(
                 "heart_seasoning",
@@ -80,7 +75,8 @@ public final class RewardPoolTables {
                 "sweet_soft_candy",
                 "onsen_manju_bag",
                 "sobering_raisin",
-                "lake_fairy_keepsake"
+                "lake_fairy_keepsake",
+                "dual_lunchbox"
         ));
         POOLS = pools;
     }

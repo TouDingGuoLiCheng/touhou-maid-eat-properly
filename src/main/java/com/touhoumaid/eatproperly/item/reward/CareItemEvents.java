@@ -4,9 +4,12 @@ import com.github.tartaricacid.touhoulittlemaid.api.event.InteractMaidEvent;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.advancement.EatProperlyAdvancements;
-import com.touhoumaid.eatproperly.food.FoodRequestData;
+import com.touhoumaid.eatproperly.favorability.RequestFavorPolicy;
 import com.touhoumaid.eatproperly.food.FoodRequestHandler;
 import com.touhoumaid.eatproperly.food.MaidSpeech;
+import com.touhoumaid.eatproperly.food.OutOfPoolAngerData;
+import com.touhoumaid.eatproperly.food.OutOfPoolDelivery;
+import com.touhoumaid.eatproperly.food.MaidFoodReceive;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
@@ -15,6 +18,10 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.items.ItemStackHandler;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Right-click-a-maid behavior for the dual lunchbox, extra meal permit and hypnosis note.
@@ -57,22 +64,106 @@ public final class CareItemEvents {
             return;
         }
 
-        boolean doubleComplete = !foodA.isEmpty() && !foodB.isEmpty()
-                && FoodRequestHandler.canCompleteDual(maid, foodA, foodB);
+        ItemStack foodACopy = foodA.copy();
+        ItemStack foodBCopy = foodB.copy();
+        boolean wantDoubleComplete = !foodACopy.isEmpty() && !foodBCopy.isEmpty()
+                && FoodRequestHandler.canCompleteDual(maid, foodACopy, foodBCopy);
 
-        boolean delivered = DualLunchboxItem.deliverAllTo(stack, maid.getMaidInv());
+        boolean delivered = deliverDualRespectingAnger(stack, maid);
         if (delivered) {
-            if (doubleComplete) {
-                FoodRequestHandler.completeCurrentRequestWithLevelGain(maid, 2);
+            boolean aDelivered = foodACopy.isEmpty() || DualLunchboxItem.getStoredFood(stack, 0).isEmpty();
+            boolean bDelivered = foodBCopy.isEmpty() || DualLunchboxItem.getStoredFood(stack, 1).isEmpty();
+            if (wantDoubleComplete && aDelivered && bDelivered) {
+                FoodRequestHandler.completeCurrentRequestWithPoints(maid, RequestFavorPolicy.DUAL_POINTS);
             } else {
-                FoodRequestHandler.tryCompleteFromBackpackNow(maid);
+                FoodRequestHandler.tryCompleteFromCarriedNow(maid);
             }
             if (player instanceof ServerPlayer serverPlayer) {
                 EatProperlyAdvancements.onLunchboxDelivered(serverPlayer);
             }
             player.getCooldowns().addCooldown(stack.getItem(), 10);
+        } else if (DualLunchboxItem.isMaidInvTooFullFor(stack, maid)) {
+            MaidSpeech.bubbleToOwnerIfNear(maid, "主人，我腾不出手来吃东西啦！");
         }
         event.setCanceled(true);
+    }
+
+    /**
+     * In-pool slots first (may forgive); out-of-pool never delivers if the maid was angry
+     * at the start of this hand-in (forgive must not unlock out-of-pool in the same action).
+     * All attempted slots must fully fit into the visible backpack or nothing is moved.
+     */
+    private static boolean deliverDualRespectingAnger(ItemStack dual, EntityMaid maid) {
+        ItemStackHandler handler = DualLunchboxItem.getContainer(dual);
+        long now = maid.level().getGameTime();
+        boolean angryAtStart = OutOfPoolAngerData.isAngry(maid, now);
+        boolean attemptedOutWhileAngry = false;
+
+        List<Integer> toMove = new ArrayList<>(DualLunchboxItem.SLOTS);
+        for (int i = 0; i < DualLunchboxItem.SLOTS; i++) {
+            ItemStack food = handler.getStackInSlot(i);
+            if (food.isEmpty() || !OutOfPoolDelivery.isInEffectivePool(maid, food)) {
+                continue;
+            }
+            toMove.add(i);
+        }
+        for (int i = 0; i < DualLunchboxItem.SLOTS; i++) {
+            ItemStack food = handler.getStackInSlot(i);
+            if (food.isEmpty() || OutOfPoolDelivery.isInEffectivePool(maid, food)) {
+                continue;
+            }
+            if (angryAtStart || OutOfPoolDelivery.shouldBlockStow(maid, food)) {
+                attemptedOutWhileAngry = true;
+                continue;
+            }
+            toMove.add(i);
+        }
+
+        if (toMove.isEmpty()) {
+            if (attemptedOutWhileAngry && OutOfPoolAngerData.isAngry(maid, maid.level().getGameTime())) {
+                OutOfPoolDelivery.onBlockedAngry(maid);
+            }
+            return false;
+        }
+
+        List<ItemStack> foods = new ArrayList<>(toMove.size());
+        for (int slot : toMove) {
+            foods.add(handler.getStackInSlot(slot).copy());
+        }
+        if (!MaidFoodReceive.canFullyReceiveAll(maid, foods)) {
+            return false;
+        }
+
+        boolean movedAny = false;
+        for (int slot : toMove) {
+            ItemStack food = handler.getStackInSlot(slot);
+            if (food.isEmpty()) {
+                continue;
+            }
+            if (tryMoveDualSlot(handler, slot, maid, food)) {
+                movedAny = true;
+            }
+        }
+
+        DualLunchboxItem.setContainer(dual, handler);
+        if (attemptedOutWhileAngry && OutOfPoolAngerData.isAngry(maid, maid.level().getGameTime())) {
+            OutOfPoolDelivery.onBlockedAngry(maid);
+        }
+        return movedAny;
+    }
+
+    private static boolean tryMoveDualSlot(
+            ItemStackHandler handler, int slot, EntityMaid maid, ItemStack food) {
+        ItemStack foodCopy = food.copy();
+        if (!MaidFoodReceive.canFullyReceive(maid, food)) {
+            return false;
+        }
+        if (!MaidFoodReceive.tryFullyReceive(maid, food)) {
+            return false;
+        }
+        handler.extractItem(slot, food.getCount(), false);
+        OutOfPoolDelivery.afterSuccessfulStow(maid, foodCopy, foodCopy.getCount());
+        return true;
     }
 
     private static void onExtraMealPermit(InteractMaidEvent event, ItemStack stack) {
@@ -105,18 +196,13 @@ public final class CareItemEvents {
         if (!maid.isOwnedBy(player)) {
             return;
         }
-        boolean hasRequest = FoodRequestData.hasRequest(maid);
-        boolean success = hasRequest && !FoodRequestData.isForgotten(maid);
-        if (success) {
-            FoodRequestData.setForgotten(maid, true);
+        if (FoodRequestHandler.forgetCurrentRequest(maid)) {
             stack.shrink(1);
             String speech = MaidSpeech.formatHypnosis(maid.getRandom());
-            MaidSpeech.speakToOwner(maid, speech);
+            MaidSpeech.bubbleToOwnerIfNear(maid, speech);
         } else if (player instanceof ServerPlayer serverPlayer) {
-            String key = hasRequest
-                    ? "message.touhou_maid_eat_properly.hypnosis_already_forgotten"
-                    : "message.touhou_maid_eat_properly.hypnosis_no_request";
-            serverPlayer.displayClientMessage(Component.translatable(key), true);
+            serverPlayer.displayClientMessage(
+                    Component.translatable("message.touhou_maid_eat_properly.hypnosis_no_request"), true);
         }
         event.setCanceled(true);
     }

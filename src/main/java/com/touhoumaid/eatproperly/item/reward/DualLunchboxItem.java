@@ -1,5 +1,7 @@
 package com.touhoumaid.eatproperly.item.reward;
 
+import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.touhoumaid.eatproperly.food.MaidFoodReceive;
 import com.touhoumaid.eatproperly.inventory.DualLunchboxContainer;
 import com.touhoumaid.eatproperly.item.LunchboxItem;
 import net.minecraft.ChatFormatting;
@@ -16,6 +18,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.network.NetworkHooks;
@@ -116,8 +119,46 @@ public class DualLunchboxItem extends Item {
         return ItemStack.EMPTY;
     }
 
-    public static boolean deliverAllTo(ItemStack stack, ItemStackHandler maidInv) {
+    public static boolean deliverAllTo(ItemStack stack, EntityMaid maid) {
         ItemStackHandler handler = getContainer(stack);
+        List<ItemStack> foods = new java.util.ArrayList<>(SLOTS);
+        for (int i = 0; i < SLOTS; i++) {
+            ItemStack food = handler.getStackInSlot(i);
+            if (!food.isEmpty()) {
+                foods.add(food.copy());
+            }
+        }
+        if (!MaidFoodReceive.canFullyReceiveAll(maid, foods)) {
+            return false;
+        }
+        boolean movedAny = false;
+        for (int i = 0; i < SLOTS; i++) {
+            ItemStack food = handler.getStackInSlot(i);
+            if (food.isEmpty()) {
+                continue;
+            }
+            if (!MaidFoodReceive.tryFullyReceive(maid, food)) {
+                continue;
+            }
+            handler.extractItem(i, food.getCount(), false);
+            movedAny = true;
+        }
+        setContainer(stack, handler);
+        return movedAny;
+    }
+
+    public static boolean deliverAllTo(ItemStack stack, IItemHandler maidInv) {
+        ItemStackHandler handler = getContainer(stack);
+        List<ItemStack> foods = new java.util.ArrayList<>(SLOTS);
+        for (int i = 0; i < SLOTS; i++) {
+            ItemStack food = handler.getStackInSlot(i);
+            if (!food.isEmpty()) {
+                foods.add(food.copy());
+            }
+        }
+        if (!com.touhoumaid.eatproperly.item.LunchboxInvInsert.canFullyInsertAll(maidInv, foods)) {
+            return false;
+        }
         boolean movedAny = false;
         for (int i = 0; i < SLOTS; i++) {
             ItemStack food = handler.getStackInSlot(i);
@@ -125,14 +166,44 @@ public class DualLunchboxItem extends Item {
                 continue;
             }
             ItemStack leftover = ItemHandlerHelper.insertItemStacked(maidInv, food.copy(), false);
-            int moved = food.getCount() - leftover.getCount();
-            if (moved > 0) {
-                handler.extractItem(i, moved, false);
-                movedAny = true;
+            if (!com.touhoumaid.eatproperly.item.LunchboxDeliveryPolicy.wasFullyInserted(
+                    food.getCount(), leftover.getCount())) {
+                continue;
             }
+            handler.extractItem(i, food.getCount(), false);
+            movedAny = true;
         }
         setContainer(stack, handler);
         return movedAny;
+    }
+
+    public static boolean isMaidInvTooFullFor(ItemStack stack, EntityMaid maid) {
+        ItemStackHandler handler = getContainer(stack);
+        List<ItemStack> foods = new java.util.ArrayList<>(SLOTS);
+        for (int i = 0; i < SLOTS; i++) {
+            ItemStack food = handler.getStackInSlot(i);
+            if (!food.isEmpty()) {
+                foods.add(food.copy());
+            }
+        }
+        return !foods.isEmpty() && !MaidFoodReceive.canFullyReceiveAll(maid, foods);
+    }
+
+    /**
+     * {@code true} when stored foods cannot all fully fit into {@code maidInv}
+     * (cumulative simulate — use available backpack, not full 36-slot maidInv).
+     */
+    public static boolean isMaidInvTooFullFor(ItemStack stack, IItemHandler maidInv) {
+        ItemStackHandler handler = getContainer(stack);
+        List<ItemStack> foods = new java.util.ArrayList<>(SLOTS);
+        for (int i = 0; i < SLOTS; i++) {
+            ItemStack food = handler.getStackInSlot(i);
+            if (!food.isEmpty()) {
+                foods.add(food.copy());
+            }
+        }
+        return !foods.isEmpty()
+                && !com.touhoumaid.eatproperly.item.LunchboxInvInsert.canFullyInsertAll(maidInv, foods);
     }
 
     @Override

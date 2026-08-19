@@ -31,4 +31,12 @@ class HappinessTimingTest {
         assertFalse(HappinessTiming.isHungerRestoreTick(0));
         assertFalse(HappinessTiming.isHungerRestoreTick(-20));
     }
+
+    @Test
+    void heartParticlesEveryFifteenTicks() {
+        assertTrue(HappinessTiming.isHeartParticleTick(15));
+        assertTrue(HappinessTiming.isHeartParticleTick(30));
+        assertFalse(HappinessTiming.isHeartParticleTick(14));
+        assertFalse(HappinessTiming.isHeartParticleTick(0));
+    }
 }

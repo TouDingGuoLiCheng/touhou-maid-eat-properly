@@ -1,0 +1,12 @@
+{
+  "silver_bell_chime": {
+    "subtitle": "subtitles.touhou_maid_eat_properly.silver_bell_chime",
+    "sounds": [
+      {
+        "name": "touhou_maid_eat_properly:silver_bell_chime",
+        "volume": 0.8,
+        "pitch": 1.0
+      }
+    ]
+  }
+}

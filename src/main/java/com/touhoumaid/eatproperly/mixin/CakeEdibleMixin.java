@@ -25,6 +25,6 @@ public abstract class CakeEdibleMixin {
         if (maid.level().isClientSide() || !cir.getReturnValueZ()) {
             return;
         }
-        SatietyData.addSatiety(maid, CAKE_BITE_NUTRITION);
+        SatietyData.eatFood(maid, CAKE_BITE_NUTRITION, 0.2F);
     }
 }

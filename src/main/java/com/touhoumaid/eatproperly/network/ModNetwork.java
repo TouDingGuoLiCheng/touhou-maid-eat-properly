@@ -36,5 +36,15 @@ public final class ModNetwork {
                 .decoder(ToggleTrinketPanelPacket::decode)
                 .consumerMainThread(ToggleTrinketPanelPacket::handle)
                 .add();
+        CHANNEL.messageBuilder(ToggleSnackRaidPacket.class, id++, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(ToggleSnackRaidPacket::encode)
+                .decoder(ToggleSnackRaidPacket::decode)
+                .consumerMainThread(ToggleSnackRaidPacket::handle)
+                .add();
+        CHANNEL.messageBuilder(SaveOrderBookPacket.class, id++, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(SaveOrderBookPacket::encode)
+                .decoder(SaveOrderBookPacket::decode)
+                .consumerMainThread(SaveOrderBookPacket::handle)
+                .add();
     }
 }

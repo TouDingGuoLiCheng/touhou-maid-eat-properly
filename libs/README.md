@@ -1,15 +1,13 @@
 # Local jars (optional)
 
-Build uses Modrinth Maven for Touhou Little Maid by default.
+Build uses **Modrinth Maven** for Touhou Little Maid by default (`build.gradle` → `maven.modrinth:touhou-little-maid`).
 
-If you need an offline fallback, place:
+This folder is only an **offline fallback**. Current file:
 
-`touhoulittlemaid-1.5.3.jar`
+- `touhoulittlemaid-1.5.3.jar`
 
-in this folder and temporarily switch `build.gradle` back to:
+To use it offline, temporarily switch the dependency in `build.gradle` to the `flatDir` / `blank:` style noted in comments there.
 
-```gradle
-implementation fg.deobf("blank:touhoulittlemaid:1.5.3")
-```
+**Do not** treat root-directory copies of the same jar as the real dependency — those were clutter; a spare may live under `docs/归档/…` as backup. Prefer keeping the usable offline copy **here in `libs/`**.
 
-Do not commit jar files.
+Do not commit huge jar files if the team relies on Maven only.

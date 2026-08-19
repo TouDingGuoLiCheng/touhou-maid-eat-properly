@@ -5,6 +5,8 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.advancement.EatProperlyAdvancements;
 import com.touhoumaid.eatproperly.food.FoodRequestHandler;
+import com.touhoumaid.eatproperly.food.MaidSpeech;
+import com.touhoumaid.eatproperly.food.OutOfPoolDelivery;
 import com.touhoumaid.eatproperly.item.reward.BoundLunchboxItem;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -55,15 +57,24 @@ public final class LunchboxEvents {
             return;
         }
 
-        // Always put food into the maid backpack; she eats it herself for satiety.
-        // If it matches the current request, complete the request without removing the food.
-        boolean delivered = LunchboxItem.deliverTo(stack, maid.getMaidInv());
+        if (OutOfPoolDelivery.shouldBlockStow(maid, food)) {
+            OutOfPoolDelivery.onBlockedAngry(maid);
+            event.setCanceled(true);
+            return;
+        }
+
+        ItemStack foodCopy = food.copy();
+        // Visible backpack first, then a free hand — reject only when neither can take the stack.
+        boolean delivered = LunchboxItem.deliverTo(stack, maid);
         if (delivered) {
-            FoodRequestHandler.tryCompleteFromBackpackNow(maid);
+            OutOfPoolDelivery.afterSuccessfulStow(maid, foodCopy, foodCopy.getCount());
+            FoodRequestHandler.tryCompleteFromCarriedNow(maid);
             if (player instanceof ServerPlayer serverPlayer) {
                 EatProperlyAdvancements.onLunchboxDelivered(serverPlayer);
             }
             player.getCooldowns().addCooldown(stack.getItem(), 10);
+        } else {
+            MaidSpeech.bubbleToOwnerIfNear(maid, "主人，我腾不出手来吃东西啦！");
         }
         event.setCanceled(true);
     }

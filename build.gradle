@@ -147,6 +147,9 @@ dependencies {
     compileOnly fg.deobf("curse.maven:farmers-delight-398521:${farmersdelight_file_id}")
     compileOnly fg.deobf("curse.maven:youkais-homecoming-957437:${youkai_file_id}")
 
+    // Touhou Maid: Affection — compileOnly for Mixin AP; runtime optional (see EatProperlyMixinPlugin)
+    compileOnly files('libs/touhou-maid-affection-1.7.2.2.jar')
+
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
@@ -221,6 +224,22 @@ tasks.named('jar', Jar).configure {
     }
 
     finalizedBy 'reobfJar'
+}
+
+// Keep every built version under releases/ — `clean` wipes build/libs but not this folder.
+tasks.register('copyJarToReleases', Copy) {
+    group = 'build'
+    description = 'Copy the built mod jar into releases/ (preserves older versions)'
+    dependsOn reobfJar
+    from(tasks.named('jar', Jar).map { it.archiveFile })
+    into(layout.projectDirectory.dir('releases'))
+    doLast {
+        logger.lifecycle("Archived jar -> releases/${tasks.named('jar', Jar).get().archiveFileName.get()}")
+    }
+}
+
+tasks.named('build').configure {
+    finalizedBy copyJarToReleases
 }
 
 // T1–T14 regression guard: every ModItems id + happiness effect icon must be inside the jar.

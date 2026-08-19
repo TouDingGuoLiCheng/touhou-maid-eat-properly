@@ -15,10 +15,12 @@ public final class FoodRequestData {
     /** Legacy day index; migrated to {@link #START_TIME} on read. */
     private static final String START_DAY = "RequestStartDay";
     private static final String NEXT_DAY = "NextRequestDay";
+    /** Last successfully applied schedule gap in game days; -1 / absent = none. */
+    private static final String LAST_INTERVAL = "LastRequestIntervalDays";
     private static final String LAST_NAG = "LastNagGameTime";
     private static final String NEXT_NAG_INTERVAL = "NextNagIntervalTicks";
     private static final String INIT = "Initialized";
-    /** Set by the hypnosis note: while true, any food-pool item (not just the exact request) completes the request. */
+    /** Legacy hypnosis flag (no longer set); cleared on tick for old saves. */
     private static final String FORGOTTEN = "RequestForgotten";
 
     public static final long TICKS_PER_DAY = 24000L;
@@ -69,7 +71,7 @@ public final class FoodRequestData {
         tag.putBoolean(FORGOTTEN, false);
     }
 
-    /** Whether the maid currently "forgot" her request (hypnosis note): any food-pool item completes it. */
+    /** Legacy field; hypnosis now clears the request instead of setting this. */
     public static boolean isForgotten(EntityMaid maid) {
         return root(maid).getBoolean(FORGOTTEN);
     }
@@ -149,6 +151,19 @@ public final class FoodRequestData {
         root(maid).putLong(NEXT_DAY, day);
     }
 
+    /** Previous schedule gap in game days, or {@code -1} if never scheduled under the new rules. */
+    public static int getLastIntervalDays(EntityMaid maid) {
+        CompoundTag tag = root(maid);
+        if (!tag.contains(LAST_INTERVAL, Tag.TAG_ANY_NUMERIC)) {
+            return -1;
+        }
+        return tag.getInt(LAST_INTERVAL);
+    }
+
+    public static void setLastIntervalDays(EntityMaid maid, int days) {
+        root(maid).putInt(LAST_INTERVAL, days);
+    }
+
     public static long getLastNagGameTime(EntityMaid maid) {
         return root(maid).getLong(LAST_NAG);
     }
@@ -187,18 +202,22 @@ public final class FoodRequestData {
         root(maid).putBoolean(INIT, true);
     }
 
+    public static int requestIntervalDaysMin() {
+        return DebugOverrides.requestDaysMin().orElseGet(EatProperlyConfig.REQUEST_INTERVAL_DAYS_MIN::get);
+    }
+
+    public static int requestIntervalDaysMax() {
+        return DebugOverrides.requestDaysMax().orElseGet(EatProperlyConfig.REQUEST_INTERVAL_DAYS_MAX::get);
+    }
+
     public static int randomIntervalDays(net.minecraft.util.RandomSource random) {
-        int min = DebugOverrides.requestDaysMin().orElseGet(EatProperlyConfig.REQUEST_INTERVAL_DAYS_MIN::get);
-        int max = DebugOverrides.requestDaysMax().orElseGet(EatProperlyConfig.REQUEST_INTERVAL_DAYS_MAX::get);
-        if (max < min) {
-            int tmp = min;
-            min = max;
-            max = tmp;
-        }
-        if (max == min) {
-            return min;
-        }
-        return min + random.nextInt(max - min + 1);
+        return randomIntervalDays(random, -1);
+    }
+
+    /** @param lastInterval previous gap to avoid when the range allows; use {@code -1} for none */
+    public static int randomIntervalDays(net.minecraft.util.RandomSource random, int lastInterval) {
+        java.util.Random javaRandom = new java.util.Random(random.nextLong());
+        return FoodRequestSchedule.rollInterval(javaRandom, requestIntervalDaysMin(), requestIntervalDaysMax(), lastInterval);
     }
 
     public static long currentGameDay(EntityMaid maid) {

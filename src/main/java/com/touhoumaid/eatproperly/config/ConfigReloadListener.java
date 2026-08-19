@@ -20,6 +20,8 @@ public final class ConfigReloadListener {
         if (!isOurs(event)) {
             return;
         }
+        maybeMigrateRequestIntervalDefaults();
+        maybeMigratePlayDefaults();
         logSnapshot("loaded");
     }
 
@@ -28,6 +30,8 @@ public final class ConfigReloadListener {
         if (!isOurs(event)) {
             return;
         }
+        maybeMigrateRequestIntervalDefaults();
+        maybeMigratePlayDefaults();
         logSnapshot("reloaded");
     }
 
@@ -35,14 +39,40 @@ public final class ConfigReloadListener {
         return event.getConfig().getModId().equals(EatProperlyMod.MOD_ID);
     }
 
+    private static void maybeMigrateRequestIntervalDefaults() {
+        if (!EatProperlyConfig.migrateRequestIntervalDefaultsIfNeeded()) {
+            return;
+        }
+        LOGGER.info(
+                "Eat properly: migrated request-interval defaults to {}-{} (revision {})",
+                EatProperlyConfig.REQUEST_INTERVAL_DAYS_MIN_DEFAULT,
+                EatProperlyConfig.REQUEST_INTERVAL_DAYS_MAX_DEFAULT,
+                EatProperlyConfig.REQUEST_INTERVAL_DEFAULTS_REVISION_CURRENT
+        );
+    }
+
+    private static void maybeMigratePlayDefaults() {
+        if (!EatProperlyConfig.migratePlayDefaultsIfNeeded()) {
+            return;
+        }
+        LOGGER.info(
+                "Eat properly: migrated play defaults — requestAbandonDays={}, hungryBingeUntilSatiety={} (revision {})",
+                EatProperlyConfig.REQUEST_ABANDON_DAYS.get(),
+                EatProperlyConfig.HUNGRY_BINGE_UNTIL_SATIETY.get(),
+                PlayDefaultsMigration.REVISION_CURRENT
+        );
+    }
+
     private static void logSnapshot(String phase) {
         LOGGER.info(
-                "Eat properly config {}: maxFavorLevel={}, expPerLevel={}, requestDays={}-{}, nagTicks={}-{}, drain={}, graceDays={}, milestones={}",
+                "Eat properly config {}: maxFavorLevel={}, expPerLevel={}, requestDays={}-{}, abandonDays={}, bingeUntil={}, nagTicks={}-{}, drain={}, graceDays={}, milestones={}",
                 phase,
                 EatProperlyConfig.MAX_FAVOR_LEVEL.get(),
                 EatProperlyConfig.EXP_PER_LEVEL.get(),
                 EatProperlyConfig.REQUEST_INTERVAL_DAYS_MIN.get(),
                 EatProperlyConfig.REQUEST_INTERVAL_DAYS_MAX.get(),
+                EatProperlyConfig.REQUEST_ABANDON_DAYS.get(),
+                EatProperlyConfig.HUNGRY_BINGE_UNTIL_SATIETY.get(),
                 EatProperlyConfig.REQUEST_NAG_INTERVAL_TICKS_MIN.get(),
                 EatProperlyConfig.REQUEST_NAG_INTERVAL_TICKS_MAX.get(),
                 EatProperlyConfig.SATIETY_DAILY_DRAIN_RATIO.get(),

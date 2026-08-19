@@ -1,12 +1,15 @@
 package com.touhoumaid.eatproperly.client;
 
 import com.touhoumaid.eatproperly.EatProperlyMod;
+import com.touhoumaid.eatproperly.entity.ModEntities;
 import com.touhoumaid.eatproperly.inventory.DualLunchboxContainer;
 import com.touhoumaid.eatproperly.inventory.EatProperlyContainer;
 import com.touhoumaid.eatproperly.inventory.LunchboxContainer;
+import com.touhoumaid.eatproperly.inventory.OrderBookContainer;
 import com.touhoumaid.eatproperly.inventory.TrinketContainer;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
@@ -23,6 +26,13 @@ public final class ClientSetup {
             MenuScreens.register(LunchboxContainer.TYPE.get(), LunchboxScreen::new);
             MenuScreens.register(DualLunchboxContainer.TYPE.get(), DualLunchboxScreen::new);
             MenuScreens.register(TrinketContainer.TYPE.get(), TrinketScreen::new);
+            MenuScreens.register(OrderBookContainer.TYPE.get(), OrderBookScreen::new);
         });
+    }
+
+    @SubscribeEvent
+    public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        event.registerEntityRenderer(ModEntities.WALL_HANG.get(), WallHangRenderer::new);
+        event.registerEntityRenderer(ModEntities.FLOOR_DECOR.get(), FloorDecorRenderer::new);
     }
 }

@@ -2,14 +2,20 @@ package com.touhoumaid.eatproperly.client;
 
 import com.github.tartaricacid.touhoulittlemaid.client.gui.entity.maid.AbstractMaidContainerGui;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.config.EatProperlyConfig;
 import com.touhoumaid.eatproperly.inventory.EatProperlyContainer;
 import com.touhoumaid.eatproperly.milestone.MilestoneRewards;
 import com.touhoumaid.eatproperly.network.ClaimMilestoneRewardPacket;
 import com.touhoumaid.eatproperly.network.ModNetwork;
+import com.touhoumaid.eatproperly.network.ToggleSnackRaidPacket;
 import com.touhoumaid.eatproperly.satiety.SatietyData;
+import com.touhoumaid.eatproperly.satiety.SatietySaturationOverlay;
+import com.touhoumaid.eatproperly.snackraid.SnackRaidToggleTexts;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
@@ -24,6 +30,10 @@ public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyConta
             ResourceLocation.fromNamespaceAndPath(EatProperlyMod.MOD_ID, "textures/gui/eat_properly_panel.png");
     private static final ResourceLocation SATIETY_ICONS =
             ResourceLocation.fromNamespaceAndPath(EatProperlyMod.MOD_ID, "textures/gui/satiety_icons.png");
+    private static final ResourceLocation SNACK_ALLOWED =
+            ResourceLocation.fromNamespaceAndPath(EatProperlyMod.MOD_ID, "textures/gui/snack_raid_allowed.png");
+    private static final ResourceLocation SNACK_DISALLOWED =
+            ResourceLocation.fromNamespaceAndPath(EatProperlyMod.MOD_ID, "textures/gui/snack_raid_disallowed.png");
 
     private static final int PANEL_X = 80;
     private static final int PANEL_Y = 28;
@@ -38,6 +48,12 @@ public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyConta
     private static final int REQUEST_Y = 80;
     private static final int ITEM_Y = 96;
     private static final int HINT_Y = 120;
+
+    /** Icon button near satiety label (top-right of content strip). */
+    private static final int SNACK_BUTTON_SIZE = 18;
+    private static final int SNACK_BUTTON_X = CONTENT_X + CONTENT_W - SNACK_BUTTON_SIZE;
+    private static final int SNACK_BUTTON_Y = SATIETY_LABEL_Y - 2;
+    private static final int SNACK_ICON_SRC = 64;
 
     /** Milestone claim slot (screen-relative, same space as renderLabels). */
     private static final int MILESTONE_SLOT_X = CONTENT_X + CONTENT_W - 20;
@@ -56,8 +72,31 @@ public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyConta
     private static final int TEXT_COLOR = 0x404040;
     private static final int MUTED_COLOR = 0x666666;
 
+    private SnackRaidIconButton snackRaidButton;
+
     public EatProperlyScreen(EatProperlyContainer container, Inventory inv, Component title) {
         super(container, inv, title);
+    }
+
+    @Override
+    protected void init() {
+        super.init();
+        this.snackRaidButton = this.addRenderableWidget(new SnackRaidIconButton(
+                this.leftPos + SNACK_BUTTON_X,
+                this.topPos + SNACK_BUTTON_Y,
+                button -> {
+                    EntityMaid maid = this.menu.getMaid();
+                    if (maid != null) {
+                        ModNetwork.CHANNEL.sendToServer(new ToggleSnackRaidPacket(maid.getId()));
+                    }
+                }));
+        refreshSnackRaidButton();
+    }
+
+    @Override
+    protected void containerTick() {
+        super.containerTick();
+        refreshSnackRaidButton();
     }
 
     @Override
@@ -175,6 +214,7 @@ public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyConta
     private void renderSatietyBar(GuiGraphics graphics, int x, int y) {
         EntityMaid maid = this.menu.getMaid();
         int foodLevel = maid != null ? SatietyData.getSatiety(maid) : 0;
+        float saturation = this.menu.getSaturationLevel();
         for (int i = 0; i < 10; i++) {
             int iconX = x + i * SATIETY_ICON_STEP;
             blitIcon(graphics, iconX, y, SATIETY_UV_EMPTY);
@@ -184,13 +224,83 @@ public class EatProperlyScreen extends AbstractMaidContainerGui<EatProperlyConta
                 blitIcon(graphics, iconX, y, SATIETY_UV_HALF);
             }
         }
+        for (int i = 0; i < 10; i++) {
+            SatietySaturationOverlay.Kind kind = SatietySaturationOverlay.kindForIcon(saturation, i);
+            if (kind == SatietySaturationOverlay.Kind.NONE) {
+                continue;
+            }
+            int iconX = x + i * SATIETY_ICON_STEP;
+            if (SatietySaturationOverlay.needsNormalCakeRightUnderlay(kind)) {
+                // Paint normal FULL cake on the right first (covers dark HALF food base), then gold left.
+                graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+                int halfDest = SatietySaturationOverlay.destWidth(kind, SATIETY_ICON_SIZE);
+                int halfSrc = SatietySaturationOverlay.srcWidth(kind, SATIETY_SRC_SIZE);
+                blitIcon(graphics, iconX, y, SATIETY_UV_FULL, halfDest, halfSrc,
+                        SatietySaturationOverlay.halfDestOffset(SATIETY_ICON_SIZE),
+                        SatietySaturationOverlay.halfSrcUOffset(SATIETY_SRC_SIZE));
+                graphics.setColor(1.0F, 0.85F, 0.2F, 1.0F);
+                blitIcon(graphics, iconX, y, SATIETY_UV_FULL, halfDest, halfSrc);
+            } else {
+                graphics.setColor(1.0F, 0.85F, 0.2F, 1.0F);
+                blitIcon(graphics, iconX, y, SATIETY_UV_FULL,
+                        SatietySaturationOverlay.destWidth(kind, SATIETY_ICON_SIZE),
+                        SatietySaturationOverlay.srcWidth(kind, SATIETY_SRC_SIZE));
+            }
+        }
+        graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
         String value = foodLevel + "/" + EatProperlyConfig.SATIETY_MAX;
         int valueX = x + 10 * SATIETY_ICON_STEP + 2;
         graphics.drawString(this.font, value, valueX, y + 2, TEXT_COLOR, false);
     }
 
     private static void blitIcon(GuiGraphics graphics, int x, int y, int u) {
-        graphics.blit(SATIETY_ICONS, x, y, SATIETY_ICON_SIZE, SATIETY_ICON_SIZE,
-                u, SATIETY_UV_Y, SATIETY_SRC_SIZE, SATIETY_SRC_SIZE, SATIETY_ATLAS, SATIETY_ATLAS);
+        blitIcon(graphics, x, y, u, SATIETY_ICON_SIZE, SATIETY_SRC_SIZE);
+    }
+
+    private static void blitIcon(GuiGraphics graphics, int x, int y, int u, int destWidth, int srcWidth) {
+        blitIcon(graphics, x, y, u, destWidth, srcWidth, 0, 0);
+    }
+
+    private static void blitIcon(GuiGraphics graphics, int x, int y, int u, int destWidth, int srcWidth,
+                                 int destXOffset, int srcUOffset) {
+        graphics.blit(SATIETY_ICONS, x + destXOffset, y, destWidth, SATIETY_ICON_SIZE,
+                u + srcUOffset, SATIETY_UV_Y, srcWidth, SATIETY_SRC_SIZE, SATIETY_ATLAS, SATIETY_ATLAS);
+    }
+
+    private void refreshSnackRaidButton() {
+        if (this.snackRaidButton == null) {
+            return;
+        }
+        boolean configOn = EatProperlyConfig.SNACK_RAID_ENABLED.get();
+        boolean allowed = this.menu.isSnackRaidAllowed();
+        this.snackRaidButton.active = configOn;
+        this.snackRaidButton.setAllowed(allowed);
+        String tipKey = configOn
+                ? SnackRaidToggleTexts.tooltipKey(allowed)
+                : SnackRaidToggleTexts.TOOLTIP_DISABLED_BY_CONFIG_KEY;
+        this.snackRaidButton.setTooltip(Tooltip.create(Component.translatable(tipKey)));
+    }
+
+    private final class SnackRaidIconButton extends Button {
+        private boolean allowed = true;
+
+        private SnackRaidIconButton(int x, int y, OnPress onPress) {
+            super(x, y, SNACK_BUTTON_SIZE, SNACK_BUTTON_SIZE, Component.empty(), onPress, DEFAULT_NARRATION);
+        }
+
+        private void setAllowed(boolean allowed) {
+            this.allowed = allowed;
+        }
+
+        @Override
+        protected void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            RenderSystem.enableDepthTest();
+            ResourceLocation icon = this.allowed ? SNACK_ALLOWED : SNACK_DISALLOWED;
+            float brightness = this.active ? (this.isHoveredOrFocused() ? 1.15F : 1.0F) : 0.45F;
+            graphics.setColor(brightness, brightness, brightness, 1.0F);
+            graphics.blit(icon, this.getX(), this.getY(), SNACK_BUTTON_SIZE, SNACK_BUTTON_SIZE,
+                    0, 0, SNACK_ICON_SRC, SNACK_ICON_SRC, SNACK_ICON_SRC, SNACK_ICON_SRC);
+            graphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+        }
     }
 }

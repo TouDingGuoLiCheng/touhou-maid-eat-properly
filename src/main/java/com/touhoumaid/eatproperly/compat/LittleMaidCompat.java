@@ -7,9 +7,11 @@ import com.github.tartaricacid.touhoulittlemaid.item.bauble.BaubleManager;
 import com.touhoumaid.eatproperly.item.ModItems;
 
 /**
- * Registers milestone buff trinkets as TLM maid baubles so they can be worn on the maid bauble page.
+ * Registers milestone buff trinkets, the Order Book, and Food Permit as TLM maid baubles.
  * Night sparrow wrapper is intentionally omitted (player-only). Lore-only keepsakes are not bound.
  * Effects are applied by {@link com.touhoumaid.eatproperly.trinket.TrinketEffects}, not here.
+ * Order Book filtering (intersection of all equipped books) is applied by
+ * {@link com.touhoumaid.eatproperly.food.FoodRequestHandler}.
  */
 @LittleMaidExtension
 public class LittleMaidCompat implements ILittleMaid {
@@ -27,6 +29,8 @@ public class LittleMaidCompat implements ILittleMaid {
         manager.bind(ModItems.SOBERING_RAISIN.get(), PASSIVE);
         manager.bind(ModItems.LAKE_FAIRY_KEEPSAKE.get(), PASSIVE);
         manager.bind(ModItems.SILVER_BELL_CHARM.get(), PASSIVE);
+        manager.bind(ModItems.ORDER_BOOK.get(), PASSIVE);
+        manager.bind(ModItems.FOOD_PERMIT.get(), PASSIVE);
         // night_sparrow_wrapper: player-only — do not bind
     }
 }

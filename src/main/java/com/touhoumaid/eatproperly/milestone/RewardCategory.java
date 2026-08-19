@@ -7,6 +7,5 @@ public enum RewardCategory {
     TOKEN_LOW,
     TOKEN_MID,
     TOKEN_HIGH,
-    CARE,
     BUFF
 }

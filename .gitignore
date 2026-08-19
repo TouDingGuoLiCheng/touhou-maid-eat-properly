@@ -40,8 +40,14 @@ Thumbs.db
 *.log
 *.tmp
 
+# agent scratch: TLM class dumps / javap (not source)
+.tmp_*/
+
 # Forge MDK noise
 forge*changelog.txt
 changelog.txt
 CREDITS.txt
 README.txt
+
+# Root clutter archived locally (large extracts / jars / drafts)
+归档/

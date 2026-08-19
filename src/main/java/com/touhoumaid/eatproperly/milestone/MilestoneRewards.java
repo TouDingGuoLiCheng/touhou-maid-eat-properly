@@ -119,7 +119,7 @@ public final class MilestoneRewards {
         setLastBubbleGameTime(maid, now);
         String bubble = MaidSpeech.formatMilestoneGiftBubble(maid, maid.getRandom());
         if (!bubble.isEmpty()) {
-            MaidSpeech.bubbleOnly(maid, bubble);
+            MaidSpeech.bubbleToOwnerIfNear(maid, bubble);
         }
     }
 

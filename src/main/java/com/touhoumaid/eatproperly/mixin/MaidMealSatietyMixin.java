@@ -34,8 +34,9 @@ public abstract class MaidMealSatietyMixin {
             return;
         }
         int nutrition = food.getNutrition();
+        float satMod = food.getSaturationModifier();
         if (nutrition > 0) {
-            SatietyData.addSatiety(maid, nutrition);
+            SatietyData.eatFood(maid, nutrition, satMod);
         }
     }
 }

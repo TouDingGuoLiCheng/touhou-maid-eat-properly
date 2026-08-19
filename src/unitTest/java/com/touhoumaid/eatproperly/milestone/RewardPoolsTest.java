@@ -22,8 +22,41 @@ class RewardPoolsTest {
     }
 
     @Test
+    void level10IsTokenMid() {
+        assertEquals(RewardCategory.TOKEN_MID, RewardPoolTables.categoryForLevel(10).orElseThrow());
+    }
+
+    @Test
+    void level40IsBuff() {
+        assertEquals(RewardCategory.BUFF, RewardPoolTables.categoryForLevel(40).orElseThrow());
+    }
+
+    @Test
+    void level70IsTokenMid() {
+        assertEquals(RewardCategory.TOKEN_MID, RewardPoolTables.categoryForLevel(70).orElseThrow());
+    }
+
+    @Test
     void nonMilestoneEmpty() {
         assertTrue(RewardPoolTables.categoryForLevel(7).isEmpty());
+    }
+
+    @Test
+    void tokenMidContainsBoundLunchbox() {
+        assertTrue(RewardPoolTables.poolPaths(RewardCategory.TOKEN_MID).contains("bound_lunchbox"));
+    }
+
+    @Test
+    void buffContainsDualLunchbox() {
+        assertTrue(RewardPoolTables.poolPaths(RewardCategory.BUFF).contains("dual_lunchbox"));
+    }
+
+    @Test
+    void poolsDoNotContainAltarCareItems() {
+        for (RewardCategory cat : RewardCategory.values()) {
+            assertFalse(RewardPoolTables.poolPaths(cat).contains("extra_meal_permit"));
+            assertFalse(RewardPoolTables.poolPaths(cat).contains("hypnosis_note"));
+        }
     }
 
     @Test
@@ -36,7 +69,7 @@ class RewardPoolsTest {
 
     @Test
     void pickEmptyWhenAllExcluded() {
-        Set<String> exclude = new HashSet<>(RewardPoolTables.poolPaths(RewardCategory.CARE));
-        assertFalse(RewardPoolTables.pickPath(RewardCategory.CARE, exclude, bound -> 0).isPresent());
+        Set<String> exclude = new HashSet<>(RewardPoolTables.poolPaths(RewardCategory.TOKEN_MID));
+        assertFalse(RewardPoolTables.pickPath(RewardCategory.TOKEN_MID, exclude, bound -> 0).isPresent());
     }
 }

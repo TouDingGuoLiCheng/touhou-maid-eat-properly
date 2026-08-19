@@ -6,8 +6,10 @@ import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.compat.YoukaiHomecomingCompat;
 import com.touhoumaid.eatproperly.item.ModItems;
 import com.touhoumaid.eatproperly.satiety.SatietyData;
+import com.touhoumaid.eatproperly.sound.ModSounds;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffect;
@@ -34,8 +36,10 @@ import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -61,6 +65,14 @@ public final class TrinketEffects {
             UUID.fromString("b6e1f6d2-6f0a-4b8e-9a2f-1c9d7e6a3b40");
 
     private static final Map<UUID, Float> LAST_EXHAUSTION = new HashMap<>();
+    /** Entities for whom this mod is currently providing night vision / speed via trinkets. */
+    private static final Set<UUID> NIGHT_SPARROW_PROVIDING = new HashSet<>();
+    private static final Set<UUID> SILVER_BELL_PROVIDING = new HashSet<>();
+    /** Cooldown ticks remaining before the next walk chime may play. */
+    private static final Map<UUID, Integer> SILVER_BELL_CHIME_COOLDOWN = new HashMap<>();
+    private static final int SILVER_BELL_CHIME_INTERVAL_TICKS = 200; // ~10s at 20 TPS
+    /** Min horizontal speed² this tick to count as walking (~0.03 blocks/tick). */
+    private static final double SILVER_BELL_MOVE_THRESHOLD_SQ = 0.0009;
 
     private static boolean halvingInProgress = false;
 
@@ -143,7 +155,11 @@ public final class TrinketEffects {
 
     @SubscribeEvent
     public static void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
-        LAST_EXHAUSTION.remove(event.getEntity().getUUID());
+        UUID id = event.getEntity().getUUID();
+        LAST_EXHAUSTION.remove(id);
+        NIGHT_SPARROW_PROVIDING.remove(id);
+        SILVER_BELL_PROVIDING.remove(id);
+        SILVER_BELL_CHIME_COOLDOWN.remove(id);
     }
 
     private static void tickExhaustionRefund(Player player, List<ItemStack> equipped) {
@@ -236,21 +252,76 @@ public final class TrinketEffects {
         }
     }
 
-    /** Player-only night vision. Refresh near expiry only; remove when unequipped. */
+    /**
+     * Player-only night vision. Refresh near expiry only; clear only on unequip edge
+     * so potions / other-mod NV sources are not stripped every tick.
+     */
     private static void tickNightSparrowWrapper(Player player, List<ItemStack> equipped) {
-        if (!isEquipped(equipped, ModItems.NIGHT_SPARROW_WRAPPER.get())) {
-            player.removeEffect(MobEffects.NIGHT_VISION);
-            return;
-        }
-        refreshTrinketEffect(player, MobEffects.NIGHT_VISION);
+        tickManagedEffect(player, isEquipped(equipped, ModItems.NIGHT_SPARROW_WRAPPER.get()),
+                NIGHT_SPARROW_PROVIDING, MobEffects.NIGHT_VISION);
     }
 
     private static void tickSilverBellCharm(LivingEntity entity, List<ItemStack> equipped) {
-        if (!isEquipped(equipped, ModItems.SILVER_BELL_CHARM.get())) {
-            entity.removeEffect(MobEffects.MOVEMENT_SPEED);
+        boolean wearing = isEquipped(equipped, ModItems.SILVER_BELL_CHARM.get());
+        tickManagedEffect(entity, wearing, SILVER_BELL_PROVIDING, MobEffects.MOVEMENT_SPEED);
+        tickSilverBellWalkChime(entity, wearing);
+    }
+
+    /**
+     * Soft chime while walking with the charm equipped (matches item lore).
+     * <p>
+     * Timing: after a successful play, a 200-tick (~10s) cooldown counts down every server tick
+     * (walking or not). When cooldown hits 0, the next tick that is on-ground and actually moving
+     * plays again. Movement uses {@link LivingEntity#getDeltaMovement()} — not xo/zo deltas,
+     * which are already zeroed by the time {@code LivingTickEvent} runs.
+     */
+    private static void tickSilverBellWalkChime(LivingEntity entity, boolean wearing) {
+        UUID id = entity.getUUID();
+        if (!wearing) {
+            SILVER_BELL_CHIME_COOLDOWN.remove(id);
             return;
         }
-        refreshTrinketEffect(entity, MobEffects.MOVEMENT_SPEED);
+        int cooldown = SILVER_BELL_CHIME_COOLDOWN.getOrDefault(id, 0);
+        if (cooldown > 0) {
+            SILVER_BELL_CHIME_COOLDOWN.put(id, cooldown - 1);
+            return;
+        }
+        if (!entity.onGround()) {
+            return;
+        }
+        double moveSq = entity.getDeltaMovement().horizontalDistanceSqr();
+        if (moveSq < SILVER_BELL_MOVE_THRESHOLD_SQ) {
+            return;
+        }
+        float pitch = 0.95F + entity.getRandom().nextFloat() * 0.1F;
+        entity.level().playSound(
+                null,
+                entity.getX(),
+                entity.getY(),
+                entity.getZ(),
+                ModSounds.SILVER_BELL_CHIME.get(),
+                SoundSource.PLAYERS,
+                0.4F,
+                pitch);
+        SILVER_BELL_CHIME_COOLDOWN.put(id, SILVER_BELL_CHIME_INTERVAL_TICKS);
+    }
+
+    private static void tickManagedEffect(LivingEntity entity, boolean equippedNow,
+                                          Set<UUID> providing, MobEffect effect) {
+        UUID id = entity.getUUID();
+        TrinketManagedEffectPolicy.Tick tick =
+                TrinketManagedEffectPolicy.decide(equippedNow, providing.contains(id));
+        if (tick.clear()) {
+            entity.removeEffect(effect);
+        }
+        if (tick.provide()) {
+            refreshTrinketEffect(entity, effect);
+        }
+        if (tick.providingAfter()) {
+            providing.add(id);
+        } else {
+            providing.remove(id);
+        }
     }
 
     private static void refreshTrinketEffect(LivingEntity entity, MobEffect effect) {

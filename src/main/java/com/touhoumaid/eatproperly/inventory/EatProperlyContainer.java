@@ -5,6 +5,9 @@ import com.github.tartaricacid.touhoulittlemaid.inventory.container.AbstractMaid
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.food.FoodRequestData;
 import com.touhoumaid.eatproperly.milestone.MilestoneRewards;
+import com.touhoumaid.eatproperly.satiety.MaidFoodData;
+import com.touhoumaid.eatproperly.satiety.SatietyData;
+import com.touhoumaid.eatproperly.snackraid.SnackRaidData;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.MenuProvider;
@@ -35,17 +38,20 @@ public class EatProperlyContainer extends AbstractMaidContainer {
     private final ItemStackHandler requestSync = new ItemStackHandler(1);
     /** Off-screen: pending milestone reward preview. */
     private final ItemStackHandler milestoneSync = new ItemStackHandler(1);
-    /** 0 = UI mode (WAITING/CLAIMABLE/BOND), 1 = displayed pending level or -1, 2 = request forgotten (0/1). */
-    private final ContainerData milestoneData = new SimpleContainerData(3);
+    /** 0 = UI mode, 1 = pending level or -1, 2 = request forgotten, 3 = local snack-raid allowed, 4 = saturation*10. */
+    private final ContainerData milestoneData = new SimpleContainerData(5);
 
     public EatProperlyContainer(int id, Inventory inventory, int entityId, ItemStack requestedFood,
-                                ItemStack pendingReward, int milestoneMode, int pendingLevel, boolean requestForgotten) {
+                                ItemStack pendingReward, int milestoneMode, int pendingLevel,
+                                boolean requestForgotten, boolean snackRaidAllowed) {
         super(TYPE.get(), id, inventory, entityId);
         this.requestSync.setStackInSlot(0, requestedFood.isEmpty() ? ItemStack.EMPTY : requestedFood.copy());
         this.milestoneSync.setStackInSlot(0, pendingReward.isEmpty() ? ItemStack.EMPTY : pendingReward.copy());
         this.milestoneData.set(0, milestoneMode);
         this.milestoneData.set(1, pendingLevel);
         this.milestoneData.set(2, requestForgotten ? 1 : 0);
+        this.milestoneData.set(3, snackRaidAllowed ? 1 : 0);
+        this.milestoneData.set(4, 0);
         this.addDataSlots(this.milestoneData);
 
         this.addSlot(lockedSyncSlot(this.requestSync, 0));
@@ -73,7 +79,9 @@ public class EatProperlyContainer extends AbstractMaidContainer {
         int mode = data.readVarInt();
         int pendingLevel = data.readVarInt();
         boolean forgotten = data.readBoolean();
-        return new EatProperlyContainer(windowId, inv, entityId, food, pending, mode, pendingLevel, forgotten);
+        boolean snackRaidAllowed = data.readBoolean();
+        return new EatProperlyContainer(windowId, inv, entityId, food, pending, mode, pendingLevel,
+                forgotten, snackRaidAllowed);
     }
 
     public static MenuProvider create(int entityId) {
@@ -90,26 +98,36 @@ public class EatProperlyContainer extends AbstractMaidContainer {
                 int mode = MilestoneRewards.MODE_WAITING;
                 int pendingLevel = -1;
                 boolean forgotten = false;
+                boolean snackRaidAllowed = true;
                 if (player.level().getEntity(entityId) instanceof EntityMaid maid) {
+                    SatietyData.ensureInitialized(maid);
                     food = FoodRequestData.getRequestStack(maid);
                     pending = MilestoneRewards.previewStack(maid);
                     mode = MilestoneRewards.uiMode(maid);
                     pendingLevel = MilestoneRewards.previewLevel(maid);
                     forgotten = FoodRequestData.isForgotten(maid);
+                    snackRaidAllowed = SnackRaidData.isAllowedLocally(maid);
                 }
-                return new EatProperlyContainer(id, inventory, entityId, food, pending, mode, pendingLevel, forgotten);
+                EatProperlyContainer container = new EatProperlyContainer(id, inventory, entityId, food, pending, mode,
+                        pendingLevel, forgotten, snackRaidAllowed);
+                if (player.level().getEntity(entityId) instanceof EntityMaid maid) {
+                    container.milestoneData.set(4, MaidFoodData.getSaturationSync(maid));
+                }
+                return container;
             }
         };
     }
 
     public static void writeExtraData(FriendlyByteBuf buf, int entityId, ItemStack food,
-                                      ItemStack pending, int mode, int pendingLevel, boolean forgotten) {
+                                      ItemStack pending, int mode, int pendingLevel,
+                                      boolean forgotten, boolean snackRaidAllowed) {
         buf.writeInt(entityId);
         buf.writeItem(food);
         buf.writeItem(pending);
         buf.writeVarInt(mode);
         buf.writeVarInt(pendingLevel);
         buf.writeBoolean(forgotten);
+        buf.writeBoolean(snackRaidAllowed);
     }
 
     public ItemStack getRequestedFood() {
@@ -130,6 +148,15 @@ public class EatProperlyContainer extends AbstractMaidContainer {
 
     public boolean isRequestForgotten() {
         return this.milestoneData.get(2) != 0;
+    }
+
+    public boolean isSnackRaidAllowed() {
+        return this.milestoneData.get(3) != 0;
+    }
+
+    /** Saturation level * 10 for GUI sync. */
+    public float getSaturationLevel() {
+        return this.milestoneData.get(4) / 10.0F;
     }
 
     @Override
@@ -161,6 +188,14 @@ public class EatProperlyContainer extends AbstractMaidContainer {
             int forgotten = FoodRequestData.isForgotten(maid) ? 1 : 0;
             if (this.milestoneData.get(2) != forgotten) {
                 this.milestoneData.set(2, forgotten);
+            }
+            int snackRaidAllowed = SnackRaidData.isAllowedLocally(maid) ? 1 : 0;
+            if (this.milestoneData.get(3) != snackRaidAllowed) {
+                this.milestoneData.set(3, snackRaidAllowed);
+            }
+            int saturationSync = MaidFoodData.getSaturationSync(maid);
+            if (this.milestoneData.get(4) != saturationSync) {
+                this.milestoneData.set(4, saturationSync);
             }
         }
         super.broadcastChanges();

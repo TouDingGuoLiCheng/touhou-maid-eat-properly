@@ -7,8 +7,12 @@ import net.minecraft.world.entity.player.Player;
 
 /**
  * "幸福" (Happiness): granted by eating milestone-reward tokens (thanks candy / half cake).
- * Steadily tops up hunger while active; stacking is vanilla-default "unique" (re-applying with
- * a fresh full duration always overwrites a shorter remaining duration at the same amplifier).
+ * Steadily tops up <b>player</b> hunger while active; stacking is vanilla-default
+ * "unique" (re-applying with a fresh full duration always overwrites a shorter remaining
+ * duration at the same amplifier).
+ * <p>
+ * Maid satiety restore is handled separately by {@link HappinessMaidSatietyHandler} so it
+ * does not depend on custom MobEffect ticks on {@code EntityMaid}.
  */
 public class HappinessEffect extends MobEffect {
     public HappinessEffect() {
@@ -23,10 +27,13 @@ public class HappinessEffect extends MobEffect {
 
     @Override
     public void applyEffectTick(LivingEntity entity, int amplifier) {
-        if (!(entity instanceof Player player)) {
+        if (entity.level().isClientSide()) {
             return;
         }
-        // eat() already caps foodLevel at 20 internally; no saturation added.
-        player.getFoodData().eat(HappinessTiming.HUNGER_RESTORE_AMOUNT, 0.0F);
+        // Player only — maid satiety is restored in HappinessMaidSatietyHandler.
+        if (entity instanceof Player player) {
+            // eat() already caps foodLevel at 20 internally; no saturation added.
+            player.getFoodData().eat(HappinessTiming.HUNGER_RESTORE_AMOUNT, 0.0F);
+        }
     }
 }

@@ -12,9 +12,8 @@ import javax.annotation.Nullable;
 import java.util.List;
 
 /**
- * Right-click an owned maid with an active request to make her "forget" it: the GUI shows
- * {@code ?} and any food-pool item (not just the original request) completes it.
- * See {@code CareItemEvents} for the interaction handling; consumed on success, no cooldown.
+ * Right-click an owned maid with an active request to make her forget it: clears the current
+ * request without completing it (no favor gain, no thank-you line). See {@code CareItemEvents}.
  */
 public class HypnosisNoteItem extends Item {
     public HypnosisNoteItem(Properties properties) {

@@ -1,5 +1,7 @@
 package com.touhoumaid.eatproperly.item;
 
+import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.touhoumaid.eatproperly.food.MaidFoodReceive;
 import com.touhoumaid.eatproperly.inventory.LunchboxContainer;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -15,6 +17,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.network.NetworkHooks;
@@ -194,24 +197,43 @@ public class LunchboxItem extends Item {
     }
 
     /**
-     * Deliver stored food into the maid inventory. Returns true if any food was transferred.
+     * Deliver stored food into the maid's visible backpack, or the first empty hand when it is full.
+     * Succeeds only when the entire stack fits; otherwise leaves the lunchbox unchanged.
      */
-    public static boolean deliverTo(ItemStack lunchbox, net.minecraftforge.items.ItemStackHandler maidInv) {
+    public static boolean deliverTo(ItemStack lunchbox, EntityMaid maid) {
+        ItemStack food = getStoredFood(lunchbox);
+        if (food.isEmpty() || !MaidFoodReceive.canFullyReceive(maid, food)) {
+            return false;
+        }
+        if (!MaidFoodReceive.tryFullyReceive(maid, food)) {
+            return false;
+        }
+        ItemStackHandler handler = getContainer(lunchbox);
+        handler.extractItem(0, food.getCount(), false);
+        setContainer(lunchbox, handler);
+        return true;
+    }
+
+    /**
+     * Deliver stored food into the maid's available backpack (visible slots).
+     * Succeeds only when the entire stack fits; otherwise leaves the lunchbox unchanged.
+     */
+    public static boolean deliverTo(ItemStack lunchbox, IItemHandler maidInv) {
         ItemStack food = getStoredFood(lunchbox);
         if (food.isEmpty()) {
             return false;
         }
+        ItemStack simulated = ItemHandlerHelper.insertItemStacked(maidInv, food.copy(), true);
+        if (!LunchboxDeliveryPolicy.canFullyInsert(food.getCount(), simulated.getCount())) {
+            return false;
+        }
         ItemStack leftover = ItemHandlerHelper.insertItemStacked(maidInv, food.copy(), false);
-        int moved = food.getCount() - leftover.getCount();
-        if (moved <= 0) {
+        if (!LunchboxDeliveryPolicy.wasFullyInserted(food.getCount(), leftover.getCount())) {
             return false;
         }
         ItemStackHandler handler = getContainer(lunchbox);
-        handler.extractItem(0, moved, false);
+        handler.extractItem(0, food.getCount(), false);
         setContainer(lunchbox, handler);
-        if (!leftover.isEmpty()) {
-            insertFood(lunchbox, leftover);
-        }
         return true;
     }
 }

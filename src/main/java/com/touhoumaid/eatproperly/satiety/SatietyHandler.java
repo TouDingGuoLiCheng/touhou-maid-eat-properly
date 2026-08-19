@@ -1,9 +1,9 @@
 package com.touhoumaid.eatproperly.satiety;
 
-import com.github.tartaricacid.touhoulittlemaid.entity.favorability.FavorabilityManager;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.config.EatProperlyConfig;
+import com.touhoumaid.eatproperly.food.MaidLoadedClock;
 import com.touhoumaid.eatproperly.food.MaidSpeech;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -25,6 +25,7 @@ public final class SatietyHandler {
         if (!maid.isAlive() || !maid.isTame()) {
             return;
         }
+        MaidFoodData.tick(maid);
         if (maid.tickCount % 20 != 0) {
             return;
         }
@@ -32,29 +33,34 @@ public final class SatietyHandler {
     }
 
     private static void tickMaid(EntityMaid maid) {
+        MaidLoadedClock.sync(maid);
         SatietyData.ensureInitialized(maid);
 
         long day = SatietyData.currentGameDay(maid);
         long lastDay = SatietyData.getLastSatietyDay(maid);
         if (day > lastDay) {
-            // Catch up if the maid was unloaded across multiple days.
-            long steps = Math.min(day - lastDay, 30L);
-            for (long i = 0; i < steps; i++) {
+            // Settle once per TLM schedule midnight (24:00) while the maid is ticking.
+            // Do not catch up satiety / favor for days spent unloaded outside loaded chunks.
+            if (day == lastDay + 1) {
                 applyDailySettlement(maid);
             }
             SatietyData.setLastSatietyDay(maid, day);
         }
 
+        IdleWorkMealHandler.tick(maid);
         maybeHungerSpeech(maid);
     }
 
     private static void applyDailySettlement(EntityMaid maid) {
-        int drain = SatietyData.dailyDrainAmount();
-        if (drain > 0) {
-            double mult = com.touhoumaid.eatproperly.trinket.TrinketEffects.insulatedMealBagDrainMultiplier(maid);
-            int reduced = (int) Math.round(drain * mult);
-            if (reduced > 0) {
-                SatietyData.setSatiety(maid, SatietyData.getSatiety(maid) - reduced);
+        String taskUid = maid.getTask() == null ? null : String.valueOf(maid.getTask().getUid());
+        if (MaidSatietyDrainPolicy.shouldApplyDailyDrain(MaidSatietyDrainPolicy.isIdleTaskUid(taskUid))) {
+            int drain = SatietyData.dailyDrainAmount();
+            if (drain > 0) {
+                double mult = com.touhoumaid.eatproperly.trinket.TrinketEffects.insulatedMealBagDrainMultiplier(maid);
+                int reduced = (int) Math.round(drain * mult);
+                if (reduced > 0) {
+                    MaidFoodData.drainSaturationFirst(maid, reduced);
+                }
             }
         }
 
@@ -72,7 +78,8 @@ public final class SatietyHandler {
         if (lowDays > grace) {
             int decay = EatProperlyConfig.favorDecayPerDayExp();
             if (decay > 0) {
-                FavorabilityManager manager = maid.getFavorabilityManager();
+                com.github.tartaricacid.touhoulittlemaid.entity.favorability.FavorabilityManager manager =
+                        maid.getFavorabilityManager();
                 manager.reduceWithoutLevel(decay);
             }
         }
@@ -82,17 +89,32 @@ public final class SatietyHandler {
         if (SatietyData.getSatiety(maid) >= EatProperlyConfig.SATIETY_LOW_THRESHOLD.get()) {
             return;
         }
-        long now = maid.level().getGameTime();
-        long last = SatietyData.getLastHungerSpeechGameTime(maid);
         int interval = EatProperlyConfig.HUNGER_SPEECH_INTERVAL_TICKS.get();
-        if (last >= 0 && now - last < interval) {
+        if (MaidLoadedClock.getHungerElapsed(maid) < interval) {
             return;
         }
+
+        boolean hasFood = HungerBackpackMeal.hasEdibleFood(maid);
+        if (HungerSpeechEatFirstPolicy.decide(hasFood) == HungerSpeechEatFirstPolicy.Decision.EAT_FIRST) {
+            boolean ate = HungerBackpackMeal.tryEatOne(maid);
+            if (HungerSpeechEatFirstPolicy.shouldResetHungerElapsedAfterEat(ate)) {
+                MaidLoadedClock.resetHungerElapsed(maid);
+                return;
+            }
+            if (!HungerSpeechEatFirstPolicy.shouldSpeakAfterFailedEat(ate)) {
+                return;
+            }
+            // Fall through: could not eat despite pool food (cooldown / hands full / idle gap).
+        }
+
         String text = MaidSpeech.formatHunger(maid, maid.getRandom());
         if (text.isEmpty()) {
             return;
         }
-        MaidSpeech.speakToOwner(maid, text);
-        SatietyData.setLastHungerSpeechGameTime(maid, now);
+        if (!MaidSpeech.bubbleToOwnerIfNear(maid, text)) {
+            return;
+        }
+        MaidLoadedClock.resetHungerElapsed(maid);
+        SatietyData.setLastHungerSpeechGameTime(maid, maid.level().getGameTime());
     }
 }

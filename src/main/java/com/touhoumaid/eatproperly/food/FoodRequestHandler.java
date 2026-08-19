@@ -5,17 +5,26 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.touhoumaid.eatproperly.EatProperlyMod;
 import com.touhoumaid.eatproperly.advancement.EatProperlyAdvancements;
 import com.touhoumaid.eatproperly.config.EatProperlyConfig;
-import com.touhoumaid.eatproperly.favorability.FavorLevelMath;
 import com.touhoumaid.eatproperly.favorability.FavorabilityExtension;
+import com.touhoumaid.eatproperly.favorability.RequestFavorPolicy;
 import com.touhoumaid.eatproperly.item.reward.DualLunchboxLogic;
 import com.touhoumaid.eatproperly.milestone.MilestoneRewards;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.items.ItemStackHandler;
+import net.minecraftforge.items.IItemHandler;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
+import java.util.UUID;
 
 @Mod.EventBusSubscriber(modid = EatProperlyMod.MOD_ID)
 public final class FoodRequestHandler {
@@ -40,9 +49,11 @@ public final class FoodRequestHandler {
     }
 
     private static void tickMaid(EntityMaid maid) {
+        MaidLoadedClock.sync(maid);
         MaidSpeech.tickPendingChat(maid);
         MilestoneRewards.tickBubbleNag(maid);
         ensureSchedule(maid);
+        resolveScheduleCollisionIfNeeded(maid);
 
         long day = FoodRequestData.currentGameDay(maid);
         if (!FoodRequestData.hasRequest(maid) && day >= FoodRequestData.getNextRequestDay(maid)) {
@@ -53,6 +64,10 @@ public final class FoodRequestHandler {
             return;
         }
 
+        if (maybeRematchForOrderBook(maid)) {
+            return;
+        }
+
         ItemStack wanted = FoodRequestData.getRequestStack(maid);
         if (wanted.isEmpty()) {
             FoodRequestData.clearRequest(maid);
@@ -60,9 +75,7 @@ public final class FoodRequestHandler {
             return;
         }
 
-        if (tryCompleteFromBackpack(maid, wanted)) {
-            return;
-        }
+        clearLegacyForgottenFlag(maid);
 
         if (tryAbandonRequest(maid, wanted)) {
             return;
@@ -84,7 +97,7 @@ public final class FoodRequestHandler {
         FoodRequestData.clearRequest(maid);
         scheduleNext(maid);
         if (!text.isEmpty()) {
-            MaidSpeech.speakToOwner(maid, text);
+            MaidSpeech.bubbleToOwnerIfNear(maid, text);
         }
         return true;
     }
@@ -99,8 +112,21 @@ public final class FoodRequestHandler {
         FoodRequestData.clearRequest(maid);
         scheduleNext(maid);
         if (!text.isEmpty()) {
-            MaidSpeech.speakToOwner(maid, text);
+            MaidSpeech.bubbleToOwnerIfNear(maid, text);
         }
+        return true;
+    }
+
+    /**
+     * Clears the maid's current food request without completion, favor gain, or thank-you speech.
+     * Used by the hypnosis note; schedules the next natural request window.
+     */
+    public static boolean forgetCurrentRequest(EntityMaid maid) {
+        if (!FoodRequestData.hasRequest(maid)) {
+            return false;
+        }
+        FoodRequestData.clearRequest(maid);
+        scheduleNext(maid);
         return true;
     }
 
@@ -112,18 +138,89 @@ public final class FoodRequestHandler {
         scheduleNext(maid);
     }
 
-    private static void scheduleNext(EntityMaid maid) {
-        long day = FoodRequestData.currentGameDay(maid);
-        // At least 1 day gap prevents same-tick re-request → backpack auto-complete → favor loops
-        // while testing with interval overrides of 0.
-        int interval = Math.max(1, FoodRequestData.randomIntervalDays(maid.getRandom()));
-        FoodRequestData.setNextRequestDay(maid, day + interval);
+    /**
+     * If another same-owner loaded maid shares this maid's untriggered {@code NextRequestDay},
+     * the maid with the larger UUID yields and reschedules (stable, no mutual kick).
+     */
+    private static void resolveScheduleCollisionIfNeeded(EntityMaid maid) {
+        if (FoodRequestData.hasRequest(maid)) {
+            return;
+        }
+        long myDay = FoodRequestData.getNextRequestDay(maid);
+        UUID owner = maid.getOwnerUUID();
+        if (owner == null || !(maid.level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        UUID myUuid = maid.getUUID();
+        for (Entity entity : serverLevel.getAllEntities()) {
+            if (!(entity instanceof EntityMaid other) || other == maid || !other.isAlive() || !other.isTame()) {
+                continue;
+            }
+            UUID otherOwner = other.getOwnerUUID();
+            if (otherOwner == null || !owner.equals(otherOwner)) {
+                continue;
+            }
+            if (FoodRequestData.hasRequest(other)) {
+                continue;
+            }
+            if (FoodRequestData.getNextRequestDay(other) != myDay) {
+                continue;
+            }
+            // Larger UUID yields so only one maid moves per conflicting pair.
+            if (myUuid.compareTo(other.getUUID()) > 0) {
+                scheduleNext(maid);
+                return;
+            }
+        }
+    }
+
+    /** Schedules the next natural request window with same-owner day deconfliction. */
+    public static void scheduleNext(EntityMaid maid) {
+        long today = FoodRequestData.currentGameDay(maid);
+        int min = FoodRequestData.requestIntervalDaysMin();
+        int max = FoodRequestData.requestIntervalDaysMax();
+        int last = FoodRequestData.getLastIntervalDays(maid);
+        Set<Long> occupied = collectOccupiedNextDays(maid);
+        Random random = new Random(maid.getRandom().nextLong());
+        long[] picked = FoodRequestSchedule.pickNextRequestDay(today, min, max, last, occupied, random);
+        FoodRequestData.setNextRequestDay(maid, picked[0]);
+        FoodRequestData.setLastIntervalDays(maid, (int) picked[1]);
+    }
+
+    /** Absolute next-request days already claimed by other same-owner loaded maids (waiting only). */
+    private static Set<Long> collectOccupiedNextDays(EntityMaid maid) {
+        Set<Long> occupied = new HashSet<>();
+        UUID owner = maid.getOwnerUUID();
+        if (owner == null || !(maid.level() instanceof ServerLevel serverLevel)) {
+            return occupied;
+        }
+        for (Entity entity : serverLevel.getAllEntities()) {
+            if (!(entity instanceof EntityMaid other) || other == maid || !other.isAlive() || !other.isTame()) {
+                continue;
+            }
+            UUID otherOwner = other.getOwnerUUID();
+            if (otherOwner == null || !owner.equals(otherOwner)) {
+                continue;
+            }
+            if (FoodRequestData.hasRequest(other)) {
+                continue;
+            }
+            occupied.add(FoodRequestData.getNextRequestDay(other));
+        }
+        return occupied;
     }
 
     private static void startNewRequest(EntityMaid maid) {
-        ItemStack pick = FoodPool.pickRandom(maid.getRandom());
+        List<OrderBookSnapshot> books = OrderBookData.findAllEquipped(maid);
+        ItemStack pick = FoodPool.pickRandom(maid.getRandom(), books);
         if (pick.isEmpty()) {
             scheduleNext(maid);
+            if (!books.isEmpty()) {
+                String text = MaidSpeech.formatEmptyMenu(maid.getRandom());
+                if (!text.isEmpty()) {
+                    MaidSpeech.bubbleToOwnerIfNear(maid, text);
+                }
+            }
             return;
         }
         FoodRequestData.setRequest(maid, pick);
@@ -131,20 +228,102 @@ public final class FoodRequestHandler {
     }
 
     /**
-     * Completes the request when the wanted food is already in the maid inventory.
-     * Does <b>not</b> remove the food — she should eat it herself (meal AI / edible blocks)
-     * so satiety can restore normally.
+     * When Order Book(s) are equipped and the current request is no longer in the
+     * intersection of their filters, re-roll immediately (or clear + empty-menu speech).
+     *
+     * @return true when the tick should stop further request handling this pass
      */
-    private static boolean tryCompleteFromBackpack(EntityMaid maid, ItemStack wanted) {
-        ItemStackHandler inv = maid.getMaidInv();
-        for (int i = 0; i < inv.getSlots(); i++) {
-            ItemStack stack = inv.getStackInSlot(i);
-            if (isAcceptableFood(maid, stack, wanted)) {
-                completeRequest(maid, wanted);
+    private static boolean maybeRematchForOrderBook(EntityMaid maid) {
+        List<OrderBookSnapshot> books = OrderBookData.findAllEquipped(maid);
+        if (books.isEmpty()) {
+            return false;
+        }
+        ItemStack wanted = FoodRequestData.getRequestStack(maid);
+        if (wanted.isEmpty()) {
+            return false;
+        }
+        String wantedId = FoodPool.toId(wanted);
+        if (wantedId.isEmpty() || OrderBookIntersection.allowsAll(books, wantedId)) {
+            return false;
+        }
+        ItemStack pick = FoodPool.pickRandom(maid.getRandom(), books);
+        if (pick.isEmpty()) {
+            FoodRequestData.clearRequest(maid);
+            scheduleNext(maid);
+            String text = MaidSpeech.formatEmptyMenu(maid.getRandom());
+            if (!text.isEmpty()) {
+                MaidSpeech.bubbleToOwnerIfNear(maid, text);
+            }
+            return true;
+        }
+        FoodRequestData.setRequest(maid, pick);
+        String text = MaidSpeech.formatOrderBookRematch(pick, maid.getRandom());
+        if (!text.isEmpty()) {
+            MaidSpeech.bubbleToOwnerIfNear(maid, text);
+        }
+        return true;
+    }
+
+    /**
+     * Legacy {@code RequestForgotten} from old hypnosis builds widened completion to any pool item.
+     * Hypnosis now clears the request outright; drop the stale flag so GUI and matching stay strict.
+     */
+    private static void clearLegacyForgottenFlag(EntityMaid maid) {
+        if (FoodRequestData.isForgotten(maid)) {
+            FoodRequestData.setForgotten(maid, false);
+        }
+    }
+
+    /**
+     * Completes the request when the wanted food is already in the maid's available backpack or hands.
+     * Does <b>not</b> remove the food — she should eat it herself (meal AI / edible blocks)
+     * so satiety can restore normally. Called from delivery paths (GUI close, lunchbox, give, picnic).
+     * Not from the periodic tick.
+     */
+    private static boolean tryCompleteFromCarried(EntityMaid maid, ItemStack wanted, boolean speakThanks) {
+        if (tryCompleteFromItemHandler(maid, maid.getAvailableBackpackInv(), wanted, speakThanks)) {
+            return true;
+        }
+        for (InteractionHand hand : InteractionHand.values()) {
+            if (matchesRequest(maid.getItemInHand(hand), wanted)) {
+                completeRequest(maid, wanted, RequestFavorPolicy.NORMAL_POINTS, speakThanks);
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Completes when {@code handler} (backpack / picnic basket / picnic mat) holds the wanted food.
+     * Does not remove the food.
+     */
+    public static boolean tryCompleteFromItemHandler(EntityMaid maid, IItemHandler handler) {
+        if (!FoodRequestData.hasRequest(maid) || handler == null) {
+            return false;
+        }
+        ItemStack wanted = FoodRequestData.getRequestStack(maid);
+        if (wanted.isEmpty()) {
+            return false;
+        }
+        return tryCompleteFromItemHandler(maid, handler, wanted, true);
+    }
+
+    private static boolean tryCompleteFromItemHandler(EntityMaid maid, IItemHandler handler, ItemStack wanted) {
+        return tryCompleteFromItemHandler(maid, handler, wanted, true);
+    }
+
+    private static boolean tryCompleteFromItemHandler(
+            EntityMaid maid, IItemHandler handler, ItemStack wanted, boolean speakThanks) {
+        String wantedId = FoodPool.toId(wanted);
+        String[] slotIds = new String[handler.getSlots()];
+        for (int i = 0; i < handler.getSlots(); i++) {
+            slotIds[i] = FoodPool.toId(handler.getStackInSlot(i));
+        }
+        if (!FoodHandlerMatch.containsWanted(slotIds, wantedId)) {
+            return false;
+        }
+        completeRequest(maid, wanted, RequestFavorPolicy.NORMAL_POINTS, speakThanks);
+        return true;
     }
 
     /**
@@ -173,16 +352,10 @@ public final class FoodRequestHandler {
         return !a.isEmpty() && a.equals(b);
     }
 
-    /**
-     * Whether {@code food} completes the current request: an exact match normally, or any
-     * food-pool item while the maid is under the hypnosis note's "forgotten" state.
-     */
+    /** Whether {@code food} is the item the maid currently wants (same item id). */
     public static boolean isAcceptableFood(EntityMaid maid, ItemStack food, ItemStack wanted) {
         if (food.isEmpty()) {
             return false;
-        }
-        if (FoodRequestData.isForgotten(maid)) {
-            return FoodPool.isPoolItem(food);
         }
         return matchesRequest(food, wanted);
     }
@@ -194,20 +367,26 @@ public final class FoodRequestHandler {
     public static boolean forceNewRequest(EntityMaid maid) {
         FoodRequestData.setInitialized(maid);
         FoodRequestData.clearRequest(maid);
-        ItemStack pick = FoodPool.pickRandom(maid.getRandom());
+        List<OrderBookSnapshot> books = OrderBookData.findAllEquipped(maid);
+        ItemStack pick = FoodPool.pickRandom(maid.getRandom(), books);
         if (pick.isEmpty()) {
             scheduleNext(maid);
+            if (!books.isEmpty()) {
+                String text = MaidSpeech.formatEmptyMenu(maid.getRandom());
+                if (!text.isEmpty()) {
+                    MaidSpeech.bubbleToOwnerIfNear(maid, text);
+                }
+            }
             return false;
         }
         FoodRequestData.setRequest(maid, pick);
-        nag(maid, pick);
+        nagImmediate(maid, pick);
         return true;
     }
 
     /**
      * Whether two lunchbox-slot foods together satisfy the dual lunchbox's completion rule:
-     * both must be valid food-pool items, and at least one must match (or, while forgotten,
-     * simply be) the current request.
+     * both must be valid food-pool items, and at least one must match the current request.
      */
     public static boolean canCompleteDual(EntityMaid maid, ItemStack foodA, ItemStack foodB) {
         if (!FoodRequestData.hasRequest(maid)) {
@@ -225,10 +404,11 @@ public final class FoodRequestHandler {
     }
 
     /**
-     * Completes the current request granting {@code levelGain} favorability levels instead of the
-     * usual one (used by the dual lunchbox). No-op (returns false) if there is no active request.
+     * Completes the current request granting a flat favorability point reward
+     * (used by the dual lunchbox for {@link RequestFavorPolicy#DUAL_POINTS}).
+     * No-op (returns false) if there is no active request.
      */
-    public static boolean completeCurrentRequestWithLevelGain(EntityMaid maid, int levelGain) {
+    public static boolean completeCurrentRequestWithPoints(EntityMaid maid, int points) {
         if (!FoodRequestData.hasRequest(maid)) {
             return false;
         }
@@ -236,15 +416,22 @@ public final class FoodRequestHandler {
         if (wanted.isEmpty()) {
             return false;
         }
-        completeRequest(maid, wanted, levelGain);
+        completeRequest(maid, wanted, points, true);
         return true;
     }
 
     /**
-     * If the maid's backpack already holds the requested food, complete the request
-     * without removing the item (she will eat it later).
+     * If the maid's backpack or hands already hold the requested food, complete the request
+     * without removing the item (she will eat it later). Speaks the normal request-thanks line.
      */
-    public static boolean tryCompleteFromBackpackNow(EntityMaid maid) {
+    public static boolean tryCompleteFromCarriedNow(EntityMaid maid) {
+        return tryCompleteFromCarriedNow(maid, true);
+    }
+
+    /**
+     * @param speakThanks when false, skip the normal request-thanks (caller may use another line)
+     */
+    public static boolean tryCompleteFromCarriedNow(EntityMaid maid, boolean speakThanks) {
         if (!FoodRequestData.hasRequest(maid)) {
             return false;
         }
@@ -252,21 +439,21 @@ public final class FoodRequestHandler {
         if (wanted.isEmpty()) {
             return false;
         }
-        return tryCompleteFromBackpack(maid, wanted);
+        return tryCompleteFromCarried(maid, wanted, speakThanks);
     }
 
     private static void completeRequest(EntityMaid maid, ItemStack food) {
-        completeRequest(maid, food, 1);
+        completeRequest(maid, food, RequestFavorPolicy.NORMAL_POINTS, true);
     }
 
-    /** @param levelGain how many favorability levels this completion should grant (normally 1). */
-    private static void completeRequest(EntityMaid maid, ItemStack food, int levelGain) {
+    /** @param points flat favorability points to grant (clamped to the favorability cap). */
+    private static void completeRequest(EntityMaid maid, ItemStack food, int points, boolean speakThanks) {
         FoodRequestData.clearRequest(maid);
         scheduleNext(maid);
 
         FavorabilityManager manager = maid.getFavorabilityManager();
-        int add = FavorLevelMath.pointsToAdd(maid.getFavorability(), levelGain, FavorabilityExtension.getMaxLevel(),
-                FavorabilityExtension::getLevel, FavorabilityExtension::getPointByLevel);
+        int add = RequestFavorPolicy.clampedGrant(
+                maid.getFavorability(), points, FavorabilityExtension.getMaxPoint());
         if (add > 0) {
             manager.add(add);
         }
@@ -276,21 +463,17 @@ public final class FoodRequestHandler {
             EatProperlyAdvancements.onRequestCompleted(serverPlayer);
         }
 
+        if (!speakThanks) {
+            return;
+        }
         String thanks = MaidSpeech.formatThanks(food, maid.getRandom());
         if (!thanks.isEmpty()) {
-            MaidSpeech.speakToOwner(maid, thanks);
+            MaidSpeech.speakThanksToOwner(maid, thanks);
         }
     }
 
     private static void maybeNag(EntityMaid maid, ItemStack wanted) {
-        long now = maid.level().getGameTime();
-        long last = FoodRequestData.getLastNagGameTime(maid);
-        int interval = FoodRequestData.getNextNagIntervalTicks(maid);
-        if (interval <= 0) {
-            interval = FoodRequestData.randomNagIntervalTicks(maid.getRandom());
-            FoodRequestData.setNextNagIntervalTicks(maid, interval);
-        }
-        if (last >= 0 && now - last < interval) {
+        if (MaidLoadedClock.getNagElapsed(maid) < MaidSpeech.REQUEST_NAG_COOLDOWN_TICKS) {
             return;
         }
         nag(maid, wanted);
@@ -301,8 +484,16 @@ public final class FoodRequestHandler {
         if (text.isEmpty()) {
             return;
         }
-        MaidSpeech.speakToOwner(maid, text);
+        if (!MaidSpeech.bubbleToOwnerIfNear(maid, text)) {
+            return;
+        }
+        MaidLoadedClock.resetNagElapsed(maid);
         FoodRequestData.setLastNagGameTime(maid, maid.level().getGameTime());
-        FoodRequestData.setNextNagIntervalTicks(maid, FoodRequestData.randomNagIntervalTicks(maid.getRandom()));
+        FoodRequestData.setNextNagIntervalTicks(maid, MaidSpeech.REQUEST_NAG_COOLDOWN_TICKS);
+    }
+
+    /** Extra-meal-permit: same bubble-near nag (no public chat). */
+    private static void nagImmediate(EntityMaid maid, ItemStack wanted) {
+        nag(maid, wanted);
     }
 }
