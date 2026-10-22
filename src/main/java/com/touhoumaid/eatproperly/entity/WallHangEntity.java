@@ -92,6 +92,7 @@ public class WallHangEntity extends HangingEntity implements IEntityAdditionalSp
     @Override
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
+        tag.putByte("Facing", (byte) this.getDirection().get2DDataValue());
         ItemStack stack = getItem();
         if (!stack.isEmpty()) {
             tag.put("Item", stack.save(new CompoundTag()));
@@ -106,6 +107,13 @@ public class WallHangEntity extends HangingEntity implements IEntityAdditionalSp
         }
         setItem(stack);
         super.readAdditionalSaveData(tag);
+        // Facing must be restored and the box recomputed *after* the item is loaded:
+        // Entity.load() runs reapplyPosition() before readAdditionalSaveData(), so the
+        // bounding box there was built with an empty item (1x1 height for a 2-high banner),
+        // which raised the entity and shrank its hitbox after every reload.
+        setDirection(tag.contains("Facing")
+                ? Direction.from2DDataValue(tag.getByte("Facing"))
+                : this.getDirection());
     }
 
     @Override
