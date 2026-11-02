@@ -51,3 +51,11 @@ README.txt
 
 # Root clutter archived locally (large extracts / jars / drafts)
 归档/
+# local build junk / release media
+docs/assets/*.mp4
+build-error.txt
+build_compile_log.txt
+build_jar_log.txt
+.tmp_*.png
+/com/
+touhou_maid_affection.mixins.json
