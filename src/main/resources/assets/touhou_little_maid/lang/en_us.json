@@ -1,3 +1,5 @@
 {
-  "advancements.touhou_little_maid.favorability.favorability_increased_max.description": "Maid favorability reached level 3"
+  "advancements.touhou_little_maid.favorability.favorability_increased_max.description": "Maid favorability reached level 3",
+  "gui.touhou_little_maid.button.eat_properly": "Eat Properly",
+  "gui.touhou_little_maid.button.eat_properly.desc": "Maid eating, ordering and food permit settings"
 }

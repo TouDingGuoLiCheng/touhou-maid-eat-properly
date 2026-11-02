@@ -1,3 +1,5 @@
 {
-  "advancements.touhou_little_maid.favorability.favorability_increased_max.description": "女仆好感度达到三级"
+  "advancements.touhou_little_maid.favorability.favorability_increased_max.description": "女仆好感度达到三级",
+  "gui.touhou_little_maid.button.eat_properly": "好好吃饭",
+  "gui.touhou_little_maid.button.eat_properly.desc": "女仆进食、点餐与取粮相关设置"
 }
